@@ -107,8 +107,8 @@ export async function runSearchAndCite(
   };
 }
 
-function firstSentence(text: string): string {
-  const idx = text.search(/[.!?]/);
+export function firstSentence(text: string): string {
+  const idx = text.search(/[.!?](?=\s|$)/);
   if (idx === -1) return "";
   return text.slice(0, idx + 1).trim();
 }

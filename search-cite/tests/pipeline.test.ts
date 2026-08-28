@@ -1,9 +1,11 @@
 import { describe, it, expect } from "vitest";
 import { MockSearchProvider, MockFetcher } from "../src/search.js";
-import { runSearchAndCite } from "../src/pipeline.js";
+import { runSearchAndCite, firstSentence } from "../src/pipeline.js";
 import { validateCitations } from "../src/provenance.js";
 import { scoreDocument, selectSources, dedupeByUrl } from "../src/scoring.js";
+import { extractText } from "../src/fetch.js";
 import type { FetchedDocument, SearchResult } from "../src/types.js";
+import { fixtureUrlContent } from "../fixtures/url-periods.mjs";
 
 function deps() {
   return {
@@ -109,6 +111,25 @@ describe("provenance validation", () => {
       results,
     );
     expect(err.length).toBe(0);
+  });
+});
+
+describe("firstSentence edge cases", () => {
+  it("does not truncate at periods inside URLs (e.g. example.com)", () => {
+    const text = extractText(fixtureUrlContent.html).toLowerCase();
+    const sentence = firstSentence(text);
+    expect(sentence).toBe(fixtureUrlContent.expectedFirstSentence);
+    // The period in "example.com" must NOT be treated as a sentence boundary.
+    expect(sentence).not.toBe("test article visit example.");
+  });
+
+  it("returns empty string when no sentence boundary exists", () => {
+    expect(firstSentence("no sentence ending here")).toBe("");
+  });
+
+  it("handles exclamation and question marks", () => {
+    expect(firstSentence("Is this grounded? Yes it is.")).toBe("Is this grounded?");
+    expect(firstSentence("Grounded! This is great.")).toBe("Grounded!");
   });
 });
 
