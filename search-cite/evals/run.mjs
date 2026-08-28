@@ -9,7 +9,9 @@
 import { fileURLToPath } from "node:url";
 import { dirname } from "node:path";
 import { MockSearchProvider, MockFetcher } from "../dist/search.js";
-import { runSearchAndCite } from "../dist/pipeline.js";
+import { runSearchAndCite, firstSentence } from "../dist/pipeline.js";
+import { extractText } from "../dist/fetch.js";
+import { fixtureUrlContent } from "../fixtures/url-periods.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -17,6 +19,20 @@ const here = dirname(fileURLToPath(import.meta.url));
 const BENCHMARK = [
   { query: "grounded", expectCitations: 1 },
   { query: "example", expectCitations: 1 },
+];
+
+// Edge-case checks: firstSentence must not break on periods inside URLs.
+const EDGE_CASES = [
+  {
+    name: "url-periods: firstSentence skips periods in URLs",
+    run() {
+      const text = extractText(fixtureUrlContent.html).toLowerCase();
+      const sentence = firstSentence(text);
+      if (sentence !== fixtureUrlContent.expectedFirstSentence) {
+        throw new Error(`got "${sentence}" expected "${fixtureUrlContent.expectedFirstSentence}"`);
+      }
+    },
+  },
 ];
 
 const THRESHOLD = 1.0; // all queries must pass grounding fully
@@ -55,6 +71,18 @@ async function main() {
     } catch (e) {
       failures += 1;
       console.error(`ERROR [${q.query}] ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  // Edge-case checks (firstSentence, extractText invariants).
+  for (const ec of EDGE_CASES) {
+    total += 1;
+    try {
+      ec.run();
+      console.log(`PASS [edge] ${ec.name}`);
+    } catch (e) {
+      failures += 1;
+      console.error(`FAIL [edge] ${ec.name}: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
 
