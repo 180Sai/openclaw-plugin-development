@@ -12,6 +12,7 @@ import { MockSearchProvider, MockFetcher } from "../dist/search.js";
 import { runSearchAndCite, firstSentence } from "../dist/pipeline.js";
 import { extractText } from "../dist/fetch.js";
 import { fixtureUrlContent } from "../fixtures/url-periods.mjs";
+import { duplicateResults } from "../fixtures/duplicate-results.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -30,6 +31,36 @@ const EDGE_CASES = [
       const sentence = firstSentence(text);
       if (sentence !== fixtureUrlContent.expectedFirstSentence) {
         throw new Error(`got "${sentence}" expected "${fixtureUrlContent.expectedFirstSentence}"`);
+      }
+    },
+  },
+  {
+    name: "duplicate-results: dedupeByUrl drops duplicate URLs before fetch",
+    async run() {
+      const fetcher = new MockFetcher();
+      // Provider that returns the same URL twice (worst-case provider
+      // behavior) — the pipeline must still ground cleanly with one citation.
+      const dup = {
+        id: "dup",
+        async search(_q, opts) {
+          return duplicateResults.searchResults.slice(0, opts.maxResults);
+        },
+      };
+      const out = await runSearchAndCite(
+        { provider: dup, fetcher, maxSources: 5, minTrust: 0.5 },
+        { query: "dup" },
+      );
+      if (!out.grounded) {
+        throw new Error(`expected grounded output, got grounded=${out.grounded}`);
+      }
+      const urls = out.citations.map((c) => c.url);
+      if (new Set(urls).size !== urls.length) {
+        throw new Error(`duplicate citation URLs escaped the pipeline: ${urls.join(",")}`);
+      }
+      // The single deduped URL must still be directly fetchable.
+      const d = await fetcher.fetch(duplicateResults.url);
+      if (!d.text.length) {
+        throw new Error("fetched deduped document unexpectedly empty");
       }
     },
   },
