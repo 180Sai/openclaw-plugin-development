@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { MockSearchProvider, MockFetcher } from "../src/search.js";
-import { runSearchAndCite, firstSentence } from "../src/pipeline.js";
+import { runSearchAndCite, firstSentence, selectQuote, significantTerms } from "../src/pipeline.js";
 import { validateCitations } from "../src/provenance.js";
 import { scoreDocument, selectSources, dedupeByUrl } from "../src/scoring.js";
 import { extractText } from "../src/fetch.js";
@@ -130,6 +130,40 @@ describe("firstSentence edge cases", () => {
   it("handles exclamation and question marks", () => {
     expect(firstSentence("Is this grounded? Yes it is.")).toBe("Is this grounded?");
     expect(firstSentence("Grounded! This is great.")).toBe("Grounded!");
+  });
+});
+
+describe("selectQuote", () => {
+  const text =
+    "a generic introduction with nothing useful. later the article finally discusses grounding with verifiable evidence and primary sources.";
+
+  it("picks a passage containing a significant query term over the first sentence", () => {
+    const quote = selectQuote(text, "grounding");
+    expect(text.includes(quote)).toBe(true); // verbatim substring
+    expect(quote).toContain("grounding");
+    expect(quote).not.toContain("a generic introduction");
+  });
+
+  it("returns a verbatim substring of the source text", () => {
+    const long =
+      "before before before before before before before before before before " +
+      "before before before before before before before before before before " +
+      "before before before before before before before before before before " +
+      "needle hidden in the middle of a long page after many words before.";
+    const quote = selectQuote(long, "needle");
+    expect(long.includes(quote)).toBe(true);
+    expect(quote).toContain("needle");
+  });
+
+  it("falls back to the first sentence when no query term appears in the text", () => {
+    const q = selectQuote("no relevant terms here at all.", "zzzz");
+    expect(q).toBe("no relevant terms here at all.");
+  });
+
+  it("extracts only significant terms from a query", () => {
+    expect(significantTerms("how to ground citations")).toContain("ground");
+    expect(significantTerms("how to ground citations")).not.toContain("how");
+    expect(significantTerms("the of and")).toHaveLength(0);
   });
 });
 

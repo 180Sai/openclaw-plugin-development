@@ -79,10 +79,12 @@ export async function runSearchAndCite(
     };
   }
 
-  // Build citations as verbatim snippets from the fetched texts.
+  // Build citations as verbatim snippets from the fetched texts. Prefer a
+  // passage containing the query terms over the document's first sentence so
+  // the quote actually supports the answer it is attached to.
   const citations: Omit<Citation, "retrievedAt">[] = selected.map((d) => {
-    const sentence = firstSentence(d.text) || d.text.slice(0, 160);
-    return { url: d.url, title: d.title, quote: sentence };
+    const quote = selectQuote(d.text, params.query);
+    return { url: d.url, title: d.title, quote };
   });
 
   // Validate provenance: every citation URL came from search and was fetched,
@@ -111,6 +113,53 @@ export function firstSentence(text: string): string {
   const idx = text.search(/[.!?](?=\s|$)/);
   if (idx === -1) return "";
   return text.slice(0, idx + 1).trim();
+}
+
+/** Stopwords dropped when extracting significant query terms. */
+const STOPWORDS = new Set([
+  "a", "an", "the", "of", "for", "and", "or", "to", "in", "on", "with",
+  "at", "by", "is", "are", "was", "were", "be", "how", "what", "why",
+  "when", "where", "does", "do", "not", "it", "its", "this", "that",
+]);
+
+/**
+ * Extract lowercased, non-stopword terms from a query. Terms shorter than 3
+ * chars are dropped so single letters cannot match inside unrelated words.
+ */
+export function significantTerms(query: string): string[] {
+  return query
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((t) => t.length >= 3 && !STOPWORDS.has(t));
+}
+
+/**
+ * Pick a verbatim quote from `text` that contains a significant query term.
+ *
+ * The window (max `maxLen` chars) is centered on the earliest term occurrence
+ * and snapped to word boundaries, so the result is always a substring of
+ * `text`. Falls back to `firstSentence` when no term appears in the text, so
+ * existing behavior is preserved for irrelevant pages. Never truncates inside
+ * a word and never manufactures text.
+ */
+export function selectQuote(text: string, query: string, maxLen = 220): string {
+  const terms = significantTerms(query);
+  if (terms.length > 0) {
+    let idx = -1;
+    for (const t of terms) {
+      const i = text.indexOf(t);
+      if (i !== -1 && (idx === -1 || i < idx)) idx = i;
+    }
+    if (idx !== -1) {
+      let s = Math.max(0, idx - 40);
+      while (s > 0 && !/\s/.test(text[s - 1])) s -= 1;
+      let e = Math.min(text.length, s + maxLen);
+      while (e < text.length && !/\s/.test(text[e])) e += 1;
+      const quote = text.slice(s, e).trim();
+      if (quote.length > 0) return quote;
+    }
+  }
+  return firstSentence(text) || text.slice(0, 160);
 }
 
 function summarize(query: string, docs: FetchedDocument[]): string {
