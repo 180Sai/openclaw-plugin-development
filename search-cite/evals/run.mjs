@@ -33,6 +33,20 @@ const EDGE_CASES = [
       }
     },
   },
+  {
+    name: "entity-decoding: extractText decodes HTML entities so quotes stay grounded",
+    run() {
+      const text = extractText(
+        '<p>Fish &amp; Chips cost 5&#8364;.</p><p>Caf&#233; &lt;3</p>',
+      ).toLowerCase();
+      if (text.includes("&amp;") || text.includes("&#")) {
+        throw new Error(`raw entities leaked into extracted text: "${text}"`);
+      }
+      if (!text.includes("fish & chips cost 5€.") || !text.includes("café <3")) {
+        throw new Error(`entities not decoded correctly: "${text}"`);
+      }
+    },
+  },
 ];
 
 const THRESHOLD = 1.0; // all queries must pass grounding fully
