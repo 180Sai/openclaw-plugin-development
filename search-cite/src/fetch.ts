@@ -25,6 +25,10 @@ export class HttpFetcher implements Fetcher {
       if (!res.ok) {
         throw new Error(`fetch ${url}: HTTP ${res.status}`);
       }
+      const contentType = res.headers.get("content-type");
+      if (contentType && !isSupportedTextContentType(contentType)) {
+        throw new Error(`fetch ${url}: unsupported content-type "${contentType}" (binary payloads cannot be cited)`);
+      }
       const finalUrl = res.url || url;
       const raw = await res.text();
       const text = extractText(raw);
@@ -35,6 +39,25 @@ export class HttpFetcher implements Fetcher {
     }
   }
 }
+
+/**
+ * A page is citable only when it is textual (HTML/plain text/known text-ish
+ * XML variants). Binary payloads (PDF, images, archives) would produce
+ * garbage extracted text that must never be quoted. Missing content-type is
+ * treated as text so permissive servers are not blocked.
+ */
+export function isSupportedTextContentType(contentType: string): boolean {
+  const type = contentType.split(";")[0].trim().toLowerCase();
+  if (type === "" || type.startsWith("text/")) return true;
+  return TEXT_MEDIA_TYPES.has(type);
+}
+
+const TEXT_MEDIA_TYPES = new Set([
+  "application/xhtml+xml",
+  "application/xml",
+  "application/json",
+  "application/ld+json",
+]);
 
 /** Strip scripts/styles/tags and normalize whitespace from HTML. */
 export function extractText(html: string): string {
