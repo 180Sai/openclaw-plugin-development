@@ -56,16 +56,13 @@ export async function runSearchAndCite(
     };
   }
 
-  // Fetch all returned results (top `max`).
-  const docs: FetchedDocument[] = [];
-  const fetchErrors: string[] = [];
-  for (const r of results) {
-    try {
-      docs.push(await deps.fetcher.fetch(r.url));
-    } catch (e) {
-      fetchErrors.push(`failed to fetch ${r.url}: ${(e as Error).message}`);
-    }
-  }
+  // Fetch all returned results (top `max`) with bounded concurrency so a
+  // slow host does not stall the whole run and a burst of results does not
+  // open unbounded connections. Fetched docs keep provider order.
+  const { docs, errors: fetchErrors } = await fetchWithConcurrency(
+    results.map((r) => r.url),
+    deps.fetcher,
+  );
 
   // Select trustworthy docs above the trust threshold.
   const selected = selectSources(docs, { minTrust: deps.minTrust, allowDomains: deps.allowDomains, denyDomains: deps.denyDomains }, max);
@@ -104,6 +101,40 @@ export async function runSearchAndCite(
     grounded: true,
     citations: citations.map((c) => ({ ...c, retrievedAt: now })),
     errors: fetchErrors.length ? fetchErrors : undefined,
+  };
+}
+
+/**
+ * Fetch a list of URLs with bounded concurrency (default 4).
+ *
+ * Results preserve input order; per-URL failures are collected as error
+ * strings and the failed slot is skipped (never fabricates a document). A
+ * worker pulls the next index, so in-flight fetches never exceed `limit`.
+ */
+export async function fetchWithConcurrency(
+  urls: string[],
+  fetcher: Fetcher,
+  limit = 4,
+): Promise<{ docs: FetchedDocument[]; errors: string[] }> {
+  if (limit < 1) limit = 1;
+  const slots: (FetchedDocument | null)[] = new Array(urls.length).fill(null);
+  const errors: string[] = [];
+  let next = 0;
+  const workers = Array.from({ length: Math.min(limit, urls.length) }, async () => {
+    while (next < urls.length) {
+      const i = next++;
+      const url = urls[i];
+      try {
+        slots[i] = await fetcher.fetch(url);
+      } catch (e) {
+        errors.push(`failed to fetch ${url}: ${(e as Error).message}`);
+      }
+    }
+  });
+  await Promise.all(workers);
+  return {
+    docs: slots.filter((d): d is FetchedDocument => d !== null),
+    errors,
   };
 }
 
