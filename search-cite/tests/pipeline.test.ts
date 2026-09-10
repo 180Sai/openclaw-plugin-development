@@ -5,6 +5,7 @@ import { validateCitations } from "../src/provenance.js";
 import { scoreDocument, selectSources, dedupeByUrl } from "../src/scoring.js";
 import { extractText } from "../src/fetch.js";
 import type { FetchedDocument, SearchResult } from "../src/types.js";
+import type { Fetcher } from "../src/types.js";
 import { fixtureUrlContent } from "../fixtures/url-periods.mjs";
 
 function deps() {
@@ -33,6 +34,29 @@ describe("search_and_cite pipeline", () => {
     for (const c of out.citations) {
       const doc = await deps().fetcher.fetch(c.url);
       expect(doc.text.includes(c.quote.toLowerCase())).toBe(true);
+    }
+  });
+
+  it("dedupes duplicate provider results so a URL is fetched and cited once", async () => {
+    const provider = new MockSearchProvider();
+    // Spy: count how many times each URL is fetched.
+    const fetches = new Map<string, number>();
+    const base = new MockFetcher();
+    const fetcher: Fetcher = {
+      async fetch(url: string) {
+        fetches.set(url, (fetches.get(url) ?? 0) + 1);
+        return base.fetch(url);
+      },
+    };
+    const out = await runSearchAndCite(
+      { provider, fetcher, maxSources: 5, minTrust: 0.5 },
+      { query: "grounded" },
+    );
+    expect(out.grounded).toBe(true);
+    const urls = out.citations.map((c) => c.url);
+    expect(new Set(urls).size).toBe(urls.length);
+    for (const n of fetches.values()) {
+      expect(n).toBe(1); // never fetch the same URL twice
     }
   });
 

@@ -14,7 +14,7 @@ import type {
   SearchProvider,
   SearchResult,
 } from "./types.js";
-import { selectSources, scoreDocument } from "./scoring.js";
+import { dedupeByUrl, selectSources, scoreDocument } from "./scoring.js";
 import { validateCitations } from "./provenance.js";
 
 export interface PipelineDeps {
@@ -45,7 +45,11 @@ export async function runSearchAndCite(
   params: RunParams,
 ): Promise<SearchAndCiteOutput> {
   const max = Math.min(deps.maxSources, params.maxSources ?? deps.maxSources);
-  const results: SearchResult[] = await deps.provider.search(params.query, { maxResults: max });
+  // Deduplicate provider results before fetching so the same URL is never
+  // fetched (or cited) twice, then enforce the source cap on unique URLs.
+  const results: SearchResult[] = dedupeByUrl(
+    await deps.provider.search(params.query, { maxResults: max }),
+  ).slice(0, max);
 
   if (results.length === 0) {
     return {
