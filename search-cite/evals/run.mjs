@@ -9,10 +9,11 @@
 import { fileURLToPath } from "node:url";
 import { dirname } from "node:path";
 import { MockSearchProvider, MockFetcher } from "../dist/search.js";
-import { runSearchAndCite, firstSentence, selectQuote } from "../dist/pipeline.js";
+import { runSearchAndCite, firstSentence, selectQuote, fetchWithConcurrency } from "../dist/pipeline.js";
 import { extractText } from "../dist/fetch.js";
 import { isSupportedTextContentType } from "../dist/fetch.js";
 import { fixtureUrlContent } from "../fixtures/url-periods.mjs";
+import { concurrencyFixture } from "../fixtures/fetch-concurrency.mjs";
 import { contentTypeFixture } from "../fixtures/content-type.mjs";
 import { queryQuoteContent } from "../fixtures/query-quotes.mjs";
 import { duplicateResults } from "../fixtures/duplicate-results.mjs";
@@ -34,6 +35,40 @@ const EDGE_CASES = [
       const sentence = firstSentence(text);
       if (sentence !== fixtureUrlContent.expectedFirstSentence) {
         throw new Error(`got "${sentence}" expected "${fixtureUrlContent.expectedFirstSentence}"`);
+      }
+    },
+  },
+  {
+    name: "fetch-concurrency: bounded concurrency preserves order and collects failures",
+    async run() {
+      let inFlight = 0;
+      let maxInFlight = 0;
+      const fetcher = {
+        async fetch(url) {
+          inFlight += 1;
+          maxInFlight = Math.max(maxInFlight, inFlight);
+          await new Promise((r) => setTimeout(r, 5));
+          inFlight -= 1;
+          const text = concurrencyFixture.texts[url];
+          if (!text) throw new Error(`failed to fetch ${url}: 404`);
+          return {
+            url,
+            title: url,
+            text,
+            fetchedAt: new Date().toISOString(),
+          };
+        },
+      };
+      const { docs, errors } = await fetchWithConcurrency(concurrencyFixture.urls, fetcher);
+      const got = docs.map((d) => d.url.split("/").pop());
+      if (JSON.stringify(got) !== JSON.stringify(concurrencyFixture.expectedOrder)) {
+        throw new Error(`expected order ${concurrencyFixture.expectedOrder}, got ${got}`);
+      }
+      if (maxInFlight > concurrencyFixture.limit) {
+        throw new Error(`concurrency exceeded: max ${maxInFlight} > ${concurrencyFixture.limit}`);
+      }
+      if (errors.length !== 1 || !errors[0].includes(concurrencyFixture.failingUrl)) {
+        throw new Error(`expected one failure for ${concurrencyFixture.failingUrl}, got ${errors}`);
       }
     },
   },

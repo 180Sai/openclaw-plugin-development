@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { MockSearchProvider, MockFetcher } from "../src/search.js";
-import { runSearchAndCite, firstSentence, selectQuote, significantTerms } from "../src/pipeline.js";
+import { runSearchAndCite, firstSentence, selectQuote, significantTerms, fetchWithConcurrency } from "../src/pipeline.js";
 import { validateCitations } from "../src/provenance.js";
 import { scoreDocument, selectSources, dedupeByUrl } from "../src/scoring.js";
 import { extractText } from "../src/fetch.js";
@@ -154,6 +154,71 @@ describe("firstSentence edge cases", () => {
   it("handles exclamation and question marks", () => {
     expect(firstSentence("Is this grounded? Yes it is.")).toBe("Is this grounded?");
     expect(firstSentence("Grounded! This is great.")).toBe("Grounded!");
+  });
+});
+
+describe("fetchWithConcurrency", () => {
+  const fixture = {
+    texts: {
+      "https://example.com/a": "alpha document text for grounding.",
+      "https://example.com/b": "bravo document text for grounding.",
+    },
+    urls: [
+      "https://example.com/a",
+      "https://example.com/b",
+      "https://example.com/c",
+    ],
+  };
+
+  function makeFetcher(delayMs = 0) {
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const fetcher = {
+      async fetch(url: string) {
+        inFlight += 1;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        await new Promise((r) => setTimeout(r, delayMs));
+        inFlight -= 1;
+        const text = fixture.texts[url as keyof typeof fixture.texts];
+        if (!text) throw new Error(`failed to fetch ${url}: 404`);
+        return {
+          url,
+          title: url,
+          text,
+          fetchedAt: new Date().toISOString(),
+        };
+      },
+      inFlight() {
+        return inFlight;
+      },
+      maxInFlight() {
+        return maxInFlight;
+      },
+    };
+    return fetcher;
+  }
+
+  it("preserves input order and bounds concurrency", async () => {
+    const fetcher = makeFetcher(5);
+    const { docs, errors } = await fetchWithConcurrency(fixture.urls, fetcher, 2);
+    expect(docs.map((d) => d.url)).toEqual(["https://example.com/a", "https://example.com/b"]);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toMatch(/failed to fetch https:\/\/example\.com\/c/);
+    expect(fetcher.maxInFlight()).toBeLessThanOrEqual(2);
+  });
+
+  it("serializes when limit is 1", async () => {
+    const fetcher = makeFetcher(3);
+    const { docs } = await fetchWithConcurrency([fixture.urls[0], fixture.urls[1]], fetcher, 1);
+    expect(docs).toHaveLength(2);
+    expect(fetcher.maxInFlight()).toBe(1);
+  });
+
+  it("handles empty input", async () => {
+    const fetcher = makeFetcher(0);
+    const { docs, errors } = await fetchWithConcurrency([], fetcher, 4);
+    expect(docs).toHaveLength(0);
+    expect(errors).toHaveLength(0);
   });
 });
 
