@@ -25,6 +25,10 @@ export class HttpFetcher implements Fetcher {
       if (!res.ok) {
         throw new Error(`fetch ${url}: HTTP ${res.status}`);
       }
+      const contentType = res.headers.get("content-type");
+      if (contentType && !isSupportedTextContentType(contentType)) {
+        throw new Error(`fetch ${url}: unsupported content-type "${contentType}" (binary payloads cannot be cited)`);
+      }
       const finalUrl = res.url || url;
       const raw = await res.text();
       const text = extractText(raw);
@@ -36,12 +40,70 @@ export class HttpFetcher implements Fetcher {
   }
 }
 
+/**
+ * A page is citable only when it is textual (HTML/plain text/known text-ish
+ * XML variants). Binary payloads (PDF, images, archives) would produce
+ * garbage extracted text that must never be quoted. Missing content-type is
+ * treated as text so permissive servers are not blocked.
+ */
+export function isSupportedTextContentType(contentType: string): boolean {
+  const type = contentType.split(";")[0].trim().toLowerCase();
+  if (type === "" || type.startsWith("text/")) return true;
+  return TEXT_MEDIA_TYPES.has(type);
+}
+
+const TEXT_MEDIA_TYPES = new Set([
+  "application/xhtml+xml",
+  "application/xml",
+  "application/json",
+  "application/ld+json",
+]);
+
 /** Strip scripts/styles/tags and normalize whitespace from HTML. */
+const NAMED_ENTITIES: Record<string, string> = {
+  amp: "&",
+  lt: "<",
+  gt: ">",
+  quot: '"',
+  apos: "'",
+  nbsp: " ",
+};
+
+/**
+ * Decode common HTML entities (named + decimal/hex numeric) in extracted
+ * text. Without this, a page containing "Fish &amp; Chips" would extract
+ * verbatim "Fish &amp; Chips" and a user-facing quote "Fish & Chips" would
+ * fail the substring grounding check — or the raw entity would leak into a
+ * citation quote. Unknown entities are left untouched.
+ */
+export function decodeEntities(input: string): string {
+  return input.replace(/&(#\d+|#x[0-9a-fA-F]+|[a-z]+);/gi, (m, body: string) => {
+    if (body.startsWith("#")) {
+      const code =
+        body[1] === "x" || body[1] === "X"
+          ? parseInt(body.slice(2), 16)
+          : parseInt(body.slice(1), 10);
+      if (code >= 0 && code <= 0x10ffff && !(code >= 0xd800 && code <= 0xdfff)) {
+        return String.fromCodePoint(code);
+      }
+      return m;
+    }
+    return NAMED_ENTITIES[body.toLowerCase()] ?? m;
+  });
+}
+
+/**
+ * Strip scripts/styles/tags, decode HTML entities, and normalize whitespace
+ * from HTML.
+ */
 export function extractText(html: string): string {
-  return html
-    .replace(/<script[\s\S]*?<\/script>/gi, " ")
-    .replace(/<style[\s\S]*?<\/style>/gi, " ")
-    .replace(/<[^>]+>/g, " ")
+  return decodeEntities(
+    html
+      .replace(/<script[\s\S]*?<\/script>/gi, " ")
+      .replace(/<style[\s\S]*?<\/style>/gi, " ")
+      .replace(/<[^>]+>/g, " "),
+  )
+    .replace(/\u00a0/g, " ")
     .replace(/\s+/g, " ")
     .trim();
 }
