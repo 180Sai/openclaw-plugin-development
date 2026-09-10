@@ -9,9 +9,10 @@
 import { fileURLToPath } from "node:url";
 import { dirname } from "node:path";
 import { MockSearchProvider, MockFetcher } from "../dist/search.js";
-import { runSearchAndCite, firstSentence } from "../dist/pipeline.js";
+import { runSearchAndCite, firstSentence, selectQuote } from "../dist/pipeline.js";
 import { extractText } from "../dist/fetch.js";
 import { fixtureUrlContent } from "../fixtures/url-periods.mjs";
+import { queryQuoteContent } from "../fixtures/query-quotes.mjs";
 import { duplicateResults } from "../fixtures/duplicate-results.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -31,6 +32,19 @@ const EDGE_CASES = [
       const sentence = firstSentence(text);
       if (sentence !== fixtureUrlContent.expectedFirstSentence) {
         throw new Error(`got "${sentence}" expected "${fixtureUrlContent.expectedFirstSentence}"`);
+      }
+    },
+  },
+  {
+    name: "query-quotes: selectQuote prefers a passage containing the query term",
+    run() {
+      const text = queryQuoteContent.normalizedText;
+      const quote = selectQuote(text, queryQuoteContent.query);
+      if (!text.includes(quote)) {
+        throw new Error(`quote is not a verbatim substring of the page: "${quote}"`);
+      }
+      if (!quote.includes(queryQuoteContent.term)) {
+        throw new Error(`quote does not contain term "${queryQuoteContent.term}": "${quote}"`);
       }
     },
   },
