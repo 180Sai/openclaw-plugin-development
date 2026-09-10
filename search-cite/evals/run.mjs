@@ -11,7 +11,9 @@ import { dirname } from "node:path";
 import { MockSearchProvider, MockFetcher } from "../dist/search.js";
 import { runSearchAndCite, firstSentence, selectQuote } from "../dist/pipeline.js";
 import { extractText } from "../dist/fetch.js";
+import { isSupportedTextContentType } from "../dist/fetch.js";
 import { fixtureUrlContent } from "../fixtures/url-periods.mjs";
+import { contentTypeFixture } from "../fixtures/content-type.mjs";
 import { queryQuoteContent } from "../fixtures/query-quotes.mjs";
 import { duplicateResults } from "../fixtures/duplicate-results.mjs";
 
@@ -32,6 +34,20 @@ const EDGE_CASES = [
       const sentence = firstSentence(text);
       if (sentence !== fixtureUrlContent.expectedFirstSentence) {
         throw new Error(`got "${sentence}" expected "${fixtureUrlContent.expectedFirstSentence}"`);
+      }
+    },
+  },
+  {
+    name: "content-type: binary payloads are not citable",
+    run() {
+      if (isSupportedTextContentType(contentTypeFixture.contentType)) {
+        throw new Error(`binary content-type "${contentTypeFixture.contentType}" must be rejected`);
+      }
+      if (!isSupportedTextContentType("text/html; charset=utf-8")) {
+        throw new Error("text/html must be accepted");
+      }
+      if (!isSupportedTextContentType("")) {
+        throw new Error("missing content-type must be tolerated");
       }
     },
   },
