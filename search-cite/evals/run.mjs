@@ -13,6 +13,7 @@ import { runSearchAndCite, firstSentence, selectQuote, fetchWithConcurrency } fr
 import { extractText } from "../dist/fetch.js";
 import { isSupportedTextContentType } from "../dist/fetch.js";
 import { fixtureUrlContent } from "../fixtures/url-periods.mjs";
+import { strictGroundingFixture } from "../fixtures/strict-grounding.mjs";
 import { concurrencyFixture } from "../fixtures/fetch-concurrency.mjs";
 import { contentTypeFixture } from "../fixtures/content-type.mjs";
 import { queryQuoteContent } from "../fixtures/query-quotes.mjs";
@@ -35,6 +36,25 @@ const EDGE_CASES = [
       const sentence = firstSentence(text);
       if (sentence !== fixtureUrlContent.expectedFirstSentence) {
         throw new Error(`got "${sentence}" expected "${fixtureUrlContent.expectedFirstSentence}"`);
+      }
+    },
+  },
+  {
+    name: "strict-grounding: failure path returns the documented structured shape",
+    async run() {
+      const provider = { id: "empty", async search() { return strictGroundingFixture.emptyResults; } };
+      const out = await runSearchAndCite(
+        { provider, fetcher: new MockFetcher(), maxSources: 5, minTrust: 0.5 },
+        { query: "anything", requireGrounding: true },
+      );
+      if (out.grounded !== strictGroundingFixture.expectedFailureShape.grounded) {
+        throw new Error(`expected grounded=false, got ${out.grounded}`);
+      }
+      if (out.citations.length !== 0) {
+        throw new Error(`expected zero citations, got ${out.citations.length}`);
+      }
+      if (JSON.stringify(out.errors) !== JSON.stringify(strictGroundingFixture.expectedFailureShape.errors)) {
+        throw new Error(`unexpected errors: ${out.errors}`);
       }
     },
   },

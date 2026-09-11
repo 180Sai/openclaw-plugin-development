@@ -7,6 +7,7 @@ import { extractText } from "../src/fetch.js";
 import type { FetchedDocument, SearchResult } from "../src/types.js";
 import type { Fetcher } from "../src/types.js";
 import { fixtureUrlContent } from "../fixtures/url-periods.mjs";
+import { strictGroundingFixture } from "../fixtures/strict-grounding.mjs";
 
 function deps() {
   return {
@@ -253,6 +254,29 @@ describe("selectQuote", () => {
     expect(significantTerms("how to ground citations")).toContain("ground");
     expect(significantTerms("how to ground citations")).not.toContain("how");
     expect(significantTerms("the of and")).toHaveLength(0);
+  });
+});
+
+describe("strict grounding mode (requireGrounding)", () => {
+  it("no-results failure has the documented structured shape", async () => {
+    const provider = { id: "empty", async search() { return strictGroundingFixture.emptyResults; } };
+    const out = await runSearchAndCite(
+      { provider, fetcher: new MockFetcher(), maxSources: 5, minTrust: 0.5 },
+      { query: "anything", requireGrounding: true },
+    );
+    expect(out.grounded).toBe(false);
+    expect(out.citations).toEqual([]);
+    expect(out.errors).toEqual(strictGroundingFixture.expectedFailureShape.errors);
+  });
+
+  it("trust-threshold failure carries structured errors for the tool layer", async () => {
+    const out = await runSearchAndCite(
+      { ...deps(), minTrust: 0.9999 },
+      { query: "grounded", requireGrounding: true },
+    );
+    expect(out.grounded).toBe(false);
+    expect(out.errors?.length).toBeGreaterThan(0);
+    expect(out.errors?.some((e) => e.includes("no sources passed the trust threshold"))).toBe(true);
   });
 });
 

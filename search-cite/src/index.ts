@@ -63,6 +63,21 @@ const entry: OpenClawPluginDefinition = definePluginEntry({
           },
         );
 
+        // Contract rule 4: when the caller requires grounding and the result
+        // is not grounded, return a structured failure only — no prose answer
+        // text that could be mistaken for a verified claim.
+        if (p.requireGrounding && !result.grounded) {
+          const failure = {
+            grounded: false as const,
+            citations: [],
+            errors: result.errors ?? ["grounding required but not established"],
+          };
+          return {
+            content: [{ type: "text", text: JSON.stringify(failure, null, 2) }],
+            details: failure,
+          };
+        }
+
         return {
           content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
           details: result,
