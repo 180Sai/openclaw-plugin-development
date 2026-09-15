@@ -4,6 +4,7 @@ import { runSearchAndCite, firstSentence, selectQuote, significantTerms, fetchWi
 import { validateCitations } from "../src/provenance.js";
 import { scoreDocument, selectSources, dedupeByUrl } from "../src/scoring.js";
 import { extractText } from "../src/fetch.js";
+import { OpenClawWebSearchProvider, extractResultsFromWebSearchOutput } from "../src/openclaw-search.js";
 import type { FetchedDocument, SearchResult } from "../src/types.js";
 import type { Fetcher } from "../src/types.js";
 import { fixtureUrlContent } from "../fixtures/url-periods.mjs";
@@ -304,5 +305,75 @@ describe("scoring", () => {
   it("selects only sources above the threshold", () => {
     const selected = selectSources([doc], { minTrust: 0.9 }, 5);
     expect(selected).toHaveLength(0);
+  });
+});
+
+describe("OpenClawWebSearchProvider", () => {
+  function runtimeWith(result: Record<string, unknown>, throwErr?: Error) {
+    return {
+      webSearch: {
+        async search() {
+          if (throwErr) throw throwErr;
+          return { provider: "test", result };
+        },
+      },
+    };
+  }
+
+  it("extracts URLs only from the runtime result set (results shape)", () => {
+    const provider = new OpenClawWebSearchProvider(
+      runtimeWith({
+        kind: "results",
+        results: [
+          { url: "https://a.example/x", title: "A", snippet: "sa" },
+          { url: "https://b.example/y", title: "B", snippet: "sb" },
+        ],
+      }),
+    );
+    return expect(provider.search("q", { maxResults: 5 })).resolves.toMatchObject([
+      { url: "https://a.example/x", title: "A" },
+      { url: "https://b.example/y", title: "B" },
+    ]);
+  });
+
+  it("extracts from the citations shape and dedupes URLs", () => {
+    const out = extractResultsFromWebSearchOutput(
+      {
+        kind: "answer",
+        citations: [
+          { url: "https://a.example/x", title: "A" },
+          { url: "https://a.example/x", title: "A dup" },
+          { url: "https://b.example/y", title: "B" },
+        ],
+      },
+      5,
+    );
+    expect(out.map((r) => r.url)).toEqual(["https://a.example/x", "https://b.example/y"]);
+  });
+
+  it("drops non-http(s) and malformed URLs instead of citing them", () => {
+    const out = extractResultsFromWebSearchOutput(
+      {
+        results: [
+          { url: "javascript:alert(1)", title: "bad" },
+          { url: "not a url", title: "bad2" },
+          { url: "ftp://files.example/z", title: "bad3" },
+          { url: "https://ok.example/good", title: "good" },
+        ],
+      },
+      5,
+    );
+    expect(out).toHaveLength(1);
+    expect(out[0].url).toBe("https://ok.example/good");
+  });
+
+  it("throws a structured error when the provider returns no citable URLs", async () => {
+    const provider = new OpenClawWebSearchProvider(runtimeWith({ kind: "answer", answer: "no urls" }));
+    await expect(provider.search("q", { maxResults: 5 })).rejects.toThrow(/no citable URLs/);
+  });
+
+  it("wraps runtime failures in a clear provider error", async () => {
+    const provider = new OpenClawWebSearchProvider(runtimeWith({}, new Error("provider down")));
+    await expect(provider.search("q", { maxResults: 5 })).rejects.toThrow(/web-search provider failed: provider down/);
   });
 });
