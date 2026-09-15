@@ -16,6 +16,11 @@ import {
 } from "openclaw/plugin-sdk/plugin-entry";
 import { DEFAULT_CONFIG, type SearchAndCiteConfig } from "./types.js";
 import { MockSearchProvider, MockFetcher } from "./search.js";
+import { HttpFetcher } from "./fetch.js";
+import {
+  OpenClawWebSearchProvider,
+  type RuntimeWebSearchLike,
+} from "./openclaw-search.js";
 import { runSearchAndCite } from "./pipeline.js";
 
 const entry: OpenClawPluginDefinition = definePluginEntry({
@@ -23,6 +28,19 @@ const entry: OpenClawPluginDefinition = definePluginEntry({
   name: "Search and Cite",
   description: "Web search with grounded, verifiable citations.",
   register(api) {
+    // Provider selection: use OpenClaw's runtime web-search surface (the
+    // gateway-configured provider — SearXNG/DuckDuckGo/Brave/...) when the
+    // host exposes it, so search_and_cite shares provider config, credentials,
+    // and retries with the core web_search tool. Fall back to the
+    // credential-free mock when the surface is unavailable (unit tests, CI).
+    // Fetching is always real when searching live: the HttpFetcher opens and
+    // parses the actual pages so citations are grounded in fetched text.
+    const runtimeWebSearch = (api as { runtime?: { webSearch?: RuntimeWebSearchLike["webSearch"] } })
+      .runtime?.webSearch;
+    const liveSearch = runtimeWebSearch
+      ? new OpenClawWebSearchProvider({ webSearch: runtimeWebSearch })
+      : null;
+
     api.registerTool({
       name: "search_and_cite",
       label: "Search and Cite",
@@ -42,12 +60,8 @@ const entry: OpenClawPluginDefinition = definePluginEntry({
         const config: SearchAndCiteConfig = { ...DEFAULT_CONFIG };
         const maxSources = Math.min(config.maxSources, p.maxSources ?? config.maxSources);
 
-        // First iteration uses the credential-free mock provider so the full
-        // pipeline is provable without external API keys. A real provider
-        // adapter (provider: "http") plugs in later; its API key must live in
-        // the OpenClaw secrets store / env, never in Git.
-        const provider = new MockSearchProvider();
-        const fetcher = new MockFetcher();
+        const provider = liveSearch ? liveSearch : new MockSearchProvider();
+        const fetcher = liveSearch ? new HttpFetcher() : new MockFetcher();
 
         const result = await runSearchAndCite(
           {
