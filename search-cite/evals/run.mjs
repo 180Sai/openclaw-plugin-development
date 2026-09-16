@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 import { dirname } from "node:path";
 import { MockSearchProvider, MockFetcher } from "../dist/search.js";
 import { runSearchAndCite, firstSentence, selectQuote, fetchWithConcurrency } from "../dist/pipeline.js";
-import { extractText } from "../dist/fetch.js";
+import { extractText, isTransientStatus } from "../dist/fetch.js";
 import { isSupportedTextContentType } from "../dist/fetch.js";
 import { fixtureUrlContent } from "../fixtures/url-periods.mjs";
 import { strictGroundingFixture } from "../fixtures/strict-grounding.mjs";
@@ -18,6 +18,7 @@ import { concurrencyFixture } from "../fixtures/fetch-concurrency.mjs";
 import { contentTypeFixture } from "../fixtures/content-type.mjs";
 import { queryQuoteContent } from "../fixtures/query-quotes.mjs";
 import { duplicateResults } from "../fixtures/duplicate-results.mjs";
+import { retryFixture } from "../fixtures/fetch-retry.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -29,6 +30,17 @@ const BENCHMARK = [
 
 // Edge-case checks: firstSentence must not break on periods inside URLs.
 const EDGE_CASES = [
+  {
+    name: "fetch-retry: transient statuses retried, permanent ones fail fast",
+    run() {
+      for (const s of retryFixture.transient) {
+        if (!isTransientStatus(s)) throw new Error(`status ${s} should be transient`);
+      }
+      for (const s of retryFixture.permanent) {
+        if (isTransientStatus(s)) throw new Error(`status ${s} should NOT be transient`);
+      }
+    },
+  },
   {
     name: "url-periods: firstSentence skips periods in URLs",
     run() {
