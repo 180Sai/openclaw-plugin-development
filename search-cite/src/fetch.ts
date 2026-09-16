@@ -8,12 +8,45 @@
 import type { FetchedDocument, Fetcher } from "./types.js";
 
 const DEFAULT_TIMEOUT_MS = 10000;
+const DEFAULT_MAX_RETRIES = 2;
+const RETRY_BASE_DELAY_MS = 250;
 
-/** Minimal HTTP text fetcher with redirect + timeout handling. */
+/**
+ * Transient HTTP statuses worth retrying: rate limiting and server-side
+ * failures. Client errors (4xx except 429) are permanent — retrying them
+ * would just burn time.
+ */
+export function isTransientStatus(status: number): boolean {
+  return status === 429 || (status >= 500 && status <= 599);
+}
+
+/** Minimal HTTP text fetcher with redirect, timeout, and bounded retries. */
 export class HttpFetcher implements Fetcher {
-  constructor(private readonly timeoutMs: number = DEFAULT_TIMEOUT_MS) {}
+  constructor(
+    private readonly timeoutMs: number = DEFAULT_TIMEOUT_MS,
+    private readonly maxRetries: number = DEFAULT_MAX_RETRIES,
+  ) {}
 
   async fetch(url: string): Promise<FetchedDocument> {
+    let lastError: Error = new Error(`fetch ${url}: no attempts made`);
+    for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
+      try {
+        return await this.fetchOnce(url);
+      } catch (e) {
+        lastError = e as Error;
+        // Retry only transient statuses (429/5xx) and network-level failures;
+        // abort-timeout, content-type, and client errors are permanent.
+        const transient =
+          (e instanceof FetchError && e.transientStatus !== 0) ||
+          (e instanceof TypeError && !String(lastError.message).includes("abort"));
+        if (!transient || attempt === this.maxRetries) break;
+        await new Promise((r) => setTimeout(r, RETRY_BASE_DELAY_MS * 2 ** attempt));
+      }
+    }
+    throw lastError;
+  }
+
+  private async fetchOnce(url: string): Promise<FetchedDocument> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
     try {
@@ -23,11 +56,11 @@ export class HttpFetcher implements Fetcher {
         headers: { "user-agent": "openclaw-search-cite/0.1" },
       });
       if (!res.ok) {
-        throw new Error(`fetch ${url}: HTTP ${res.status}`);
+        throw new FetchError(`fetch ${url}: HTTP ${res.status}`, isTransientStatus(res.status) ? res.status : 0);
       }
       const contentType = res.headers.get("content-type");
       if (contentType && !isSupportedTextContentType(contentType)) {
-        throw new Error(`fetch ${url}: unsupported content-type "${contentType}" (binary payloads cannot be cited)`);
+        throw new FetchError(`fetch ${url}: unsupported content-type "${contentType}" (binary payloads cannot be cited)`);
       }
       const finalUrl = res.url || url;
       const raw = await res.text();
@@ -37,6 +70,19 @@ export class HttpFetcher implements Fetcher {
     } finally {
       clearTimeout(timer);
     }
+  }
+}
+
+/**
+ * Fetch error with a marker for retryable (transient) conditions. Shared
+ * instance-safe: no state is kept on the fetcher between concurrent calls.
+ */
+class FetchError extends Error {
+  constructor(
+    message: string,
+    readonly transientStatus = 0,
+  ) {
+    super(message);
   }
 }
 
