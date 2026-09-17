@@ -19,6 +19,7 @@ import { contentTypeFixture } from "../fixtures/content-type.mjs";
 import { queryQuoteContent } from "../fixtures/query-quotes.mjs";
 import { duplicateResults } from "../fixtures/duplicate-results.mjs";
 import { retryFixture } from "../fixtures/fetch-retry.mjs";
+import { boilerplateQuoteContent } from "../fixtures/quote-boilerplate.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -151,6 +152,23 @@ const EDGE_CASES = [
       }
       if (!quote.includes(queryQuoteContent.term)) {
         throw new Error(`quote does not contain term "${queryQuoteContent.term}": "${quote}"`);
+      }
+    },
+  },
+  {
+    name: "quote-boilerplate: selectQuote prefers body sentence over page-top chrome",
+    run() {
+      const quote = selectQuote(boilerplateQuoteContent.normalizedText, boilerplateQuoteContent.query);
+      if (!boilerplateQuoteContent.normalizedText.includes(quote)) {
+        throw new Error(`quote is not a verbatim substring of the page: "${quote}"`);
+      }
+      if (!quote.includes(boilerplateQuoteContent.term)) {
+        throw new Error(`quote does not contain term "${boilerplateQuoteContent.term}": "${quote}"`);
+      }
+      for (const forbidden of boilerplateQuoteContent.forbidden) {
+        if (quote.includes(forbidden)) {
+          throw new Error(`quote contains boilerplate "${forbidden}": "${quote}"`);
+        }
       }
     },
   },
