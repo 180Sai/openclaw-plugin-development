@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 import { dirname } from "node:path";
 import { MockSearchProvider, MockFetcher } from "../dist/search.js";
 import { runSearchAndCite, firstSentence, selectQuote, fetchWithConcurrency } from "../dist/pipeline.js";
-import { extractText, isTransientStatus } from "../dist/fetch.js";
+import { extractText, isTransientStatus, retryAfterMs } from "../dist/fetch.js";
 import { isSupportedTextContentType } from "../dist/fetch.js";
 import { fixtureUrlContent } from "../fixtures/url-periods.mjs";
 import { strictGroundingFixture } from "../fixtures/strict-grounding.mjs";
@@ -38,6 +38,15 @@ const EDGE_CASES = [
       }
       for (const s of retryFixture.permanent) {
         if (isTransientStatus(s)) throw new Error(`status ${s} should NOT be transient`);
+      }
+      if (retryAfterMs(String(retryFixture.retryAfter.parseSeconds)) !== retryFixture.retryAfter.parsedMs) {
+        throw new Error("Retry-After seconds should parse to ms");
+      }
+      if (retryAfterMs("999") !== retryFixture.retryAfter.capMs) {
+        throw new Error("Retry-After should be capped at 5s");
+      }
+      if (retryAfterMs("nonsense") !== undefined) {
+        throw new Error("unparseable Retry-After should be undefined");
       }
     },
   },
