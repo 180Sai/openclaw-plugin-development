@@ -85,7 +85,8 @@ export async function runSearchAndCite(
   // the quote actually supports the answer it is attached to.
   const citations: Omit<Citation, "retrievedAt">[] = selected.map((d) => {
     const quote = selectQuote(d.text, params.query);
-    return { url: d.url, title: d.title, quote };
+    const title = d.title.trim() || fallbackTitle(d.url);
+    return { url: d.url, title, quote };
   });
 
   // Validate provenance: every citation URL came from search and was fetched,
@@ -150,6 +151,89 @@ export function firstSentence(text: string): string {
   return text.slice(0, idx + 1).trim();
 }
 
+/**
+ * Split text into sentences using the same boundary rule as
+ * `firstSentence` — punctuation followed by whitespace or end-of-
+ * string. This avoids splitting on periods inside URLs like
+ * "example.com".
+ */
+export function splitSentences(text: string): string[] {
+  const sentences: string[] = [];
+  let start = 0;
+  const re = /[.!?](?=\s|$)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    sentences.push(text.slice(start, m.index + 1).trim());
+    start = m.index + 1;
+    while (start < text.length && /\s/.test(text[start])) start++;
+  }
+  if (start < text.length) {
+    const tail = text.slice(start).trim();
+    if (tail) sentences.push(tail);
+  }
+  return sentences;
+}
+
+/** Page-chrome / nav patterns that indicate boilerplate rather than
+ *  informative content. Matched case-insensitively.
+ */
+const BOILERPLATE_PATTERNS = [
+  /skip\s+to\s+(content|main|navigation)/i,
+  /main\s+menu/i,
+  /breadcrumb/i,
+  /cookie\s+(notice|policy|consent|settings)/i,
+  /accept\s+cookies/i,
+  /subscribe/i,
+  /newsletter/i,
+  /sign\s+in/i,
+  /log\s+in/i,
+  /login/i,
+  /register/i,
+  /create\s+account/i,
+  /back\s+to\s+top/i,
+  /scroll\s+to\s+top/i,
+  /all\s+rights\s+reserved/i,
+  /privacy\s+policy/i,
+  /terms\s+of\s+(use|service)/i,
+  /powered\s+by/i,
+  /advertisement/i,
+  /sponsored/i,
+  /table\s+of\s+contents/i,
+  /jump\s+to/i,
+  /share\s+this/i,
+  /follow\s+us/i,
+  /search\s+this\s+site/i,
+  /search\s+the\s+site/i,
+  /search\s+for:/i,
+  /contact\s+us/i,
+  /about\s+us/i,
+];
+
+function isBoilerplate(sentence: string): boolean {
+  return BOILERPLATE_PATTERNS.some((p) => p.test(sentence));
+}
+
+/**
+ * Score a candidate sentence for quote relevance.
+ *
+ * Rewards: query-term coverage (+4 per distinct term), informative
+ * length (+2 for 80–400 chars), terminal punctuation (+1).
+ * Penalises: boilerplate markers (−5), very-start-of-document
+ * position (−2 when start offset < 300 chars).
+ */
+function scoreSentence(sentence: string, terms: string[], offset: number): number {
+  let score = 0;
+  const lower = sentence.toLowerCase();
+  for (const t of terms) {
+    if (lower.includes(t)) score += 4;
+  }
+  if (sentence.length >= 80 && sentence.length <= 400) score += 2;
+  if (/[.!?]$/.test(sentence)) score += 1;
+  if (isBoilerplate(sentence)) score -= 5;
+  if (offset < 300) score -= 2;
+  return score;
+}
+
 /** Stopwords dropped when extracting significant query terms. */
 const STOPWORDS = new Set([
   "a", "an", "the", "of", "for", "and", "or", "to", "in", "on", "with",
@@ -169,32 +253,89 @@ export function significantTerms(query: string): string[] {
 }
 
 /**
- * Pick a verbatim quote from `text` that contains a significant query term.
+ * Pick a verbatim quote from `text` that is informative and
+ * query-relevant, preferring body content over page chrome/nav text.
  *
- * The window (max `maxLen` chars) is centered on the earliest term occurrence
- * and snapped to word boundaries, so the result is always a substring of
- * `text`. Falls back to `firstSentence` when no term appears in the text, so
- * existing behavior is preserved for irrelevant pages. Never truncates inside
- * a word and never manufactures text.
+ * The text is split into sentences; each sentence is scored for
+ * query-term coverage, informative length, and boilerplate
+ * contamination. The highest-scoring sentence is returned as the
+ * quote (windowed to `maxLen` at word boundaries around the first
+ * matching term). Falls back to `firstSentence` when no sentence
+ * contains a query term, preserving existing behaviour for
+ * irrelevant pages. Never truncates inside a word and never
+ * manufactures text.
  */
 export function selectQuote(text: string, query: string, maxLen = 220): string {
   const terms = significantTerms(query);
+  const sentences = splitSentences(text);
+
+  let bestIdx = -1;
+  let bestScore = -Infinity;
+  let runningOffset = 0;
+  for (let i = 0; i < sentences.length; i++) {
+    const s = sentences[i];
+    const score = scoreSentence(s, terms, runningOffset);
+    if (score > bestScore) {
+      bestScore = score;
+      bestIdx = i;
+    }
+    runningOffset += s.length + 1; // +1 for the delimiter
+  }
+
+  if (bestIdx === -1 || sentences.length === 0) {
+    return firstSentence(text) || text.slice(0, 160);
+  }
+
+  const best = sentences[bestIdx];
+
+  // If the best sentence contains a significant term, extract a
+  // window around the first such occurrence, scoped to the
+  // sentence so we never cross into unrelated content.
   if (terms.length > 0) {
+    const lower = best.toLowerCase();
     let idx = -1;
     for (const t of terms) {
-      const i = text.indexOf(t);
+      const i = lower.indexOf(t);
       if (i !== -1 && (idx === -1 || i < idx)) idx = i;
     }
     if (idx !== -1) {
       let s = Math.max(0, idx - 40);
-      while (s > 0 && !/\s/.test(text[s - 1])) s -= 1;
-      let e = Math.min(text.length, s + maxLen);
-      while (e < text.length && !/\s/.test(text[e])) e += 1;
-      const quote = text.slice(s, e).trim();
+      while (s > 0 && !/\s/.test(best[s - 1])) s -= 1;
+      let e = Math.min(best.length, s + maxLen);
+      while (e < best.length && !/\s/.test(best[e])) e += 1;
+      const quote = best.slice(s, e).trim();
       if (quote.length > 0) return quote;
     }
   }
-  return firstSentence(text) || text.slice(0, 160);
+
+  // No term in the best sentence — return the sentence itself
+  // (trimmed to maxLen at word boundary).
+  if (best.length <= maxLen) return best;
+  let s = 0;
+  let e = Math.min(best.length, maxLen);
+  while (e < best.length && !/\s/.test(best[e])) e += 1;
+  return best.slice(s, e).trim();
+}
+
+/**
+ * Derive a human-readable title from a URL path segment when the
+ * fetched document has no title. Returns a non-empty string.
+ */
+export function fallbackTitle(url: string): string {
+  try {
+    const u = new URL(url);
+    const segments = u.pathname.split("/").filter(Boolean);
+    const last = segments[segments.length - 1];
+    if (last && last.length >= 2) {
+      return last
+        .replace(/\.(html?|php|aspx?|jsp|json|xml)$/i, "")
+        .replace(/[-_]+/g, " ")
+        .replace(/\b\w/g, (c) => c.toUpperCase());
+    }
+  } catch {
+    // not a valid URL
+  }
+  return "Source";
 }
 
 function summarize(query: string, docs: FetchedDocument[]): string {
