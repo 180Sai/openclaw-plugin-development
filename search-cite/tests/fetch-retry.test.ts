@@ -1,6 +1,6 @@
 /* global Response */
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { HttpFetcher, isTransientStatus } from "../src/fetch.js";
+import { HttpFetcher, isTransientStatus, retryAfterMs } from "../src/fetch.js";
 
 function okHtml() {
   return new Response("<html><body><p>hello grounding page</p></body></html>", {
@@ -28,6 +28,35 @@ describe("HttpFetcher retry/backoff", () => {
     const doc = await fetcher.fetch("https://example.com/ok");
     expect(calls).toBe(3);
     expect(doc.text).toContain("grounding page");
+  });
+
+  it("honors a numeric Retry-After header on 429 (capped at 5s)", async () => {
+    let calls = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        calls += 1;
+        if (calls === 1) {
+          return new Response("slow down", {
+            status: 429,
+            headers: { "content-type": "text/plain", "retry-after": "1" },
+          });
+        }
+        return okHtml();
+      }),
+    );
+    const origSetTimeout = globalThis.setTimeout;
+    const spy = vi.fn((fn: () => void, _ms?: number) => origSetTimeout(fn, 0));
+    vi.stubGlobal("setTimeout", spy);
+    const fetcher = new HttpFetcher(1000, 2);
+    const doc = await fetcher.fetch("https://example.com/ratelimited");
+    expect(calls).toBe(2);
+    expect(doc.text).toContain("grounding page");
+    // The retry delay must equal the Retry-After value (1000ms), not the
+    // exponential default (250ms).
+    const retryCall = spy.mock.calls.find((c) => typeof c[1] === "number" && c[1] > 0);
+    expect(retryCall?.[1]).toBe(1000);
+    // Cap check via unit table below (retryAfterMs).
   });
 
   it("does not retry permanent client errors (404)", async () => {
@@ -83,5 +112,16 @@ describe("isTransientStatus", () => {
     expect(isTransientStatus(404)).toBe(false);
     expect(isTransientStatus(403)).toBe(false);
     expect(isTransientStatus(200)).toBe(false);
+  });
+});
+
+describe("retryAfterMs", () => {
+  it("parses delay-seconds and caps at 5s", () => {
+    expect(retryAfterMs("1")).toBe(1000);
+    expect(retryAfterMs("0")).toBe(0);
+    expect(retryAfterMs("999")).toBe(5000); // capped
+    expect(retryAfterMs(null)).toBeUndefined();
+    expect(retryAfterMs("abc")).toBeUndefined(); // HTTP-date form not parsed
+    expect(retryAfterMs("-3")).toBeUndefined();
   });
 });

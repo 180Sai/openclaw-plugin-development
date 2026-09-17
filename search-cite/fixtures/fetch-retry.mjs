@@ -17,4 +17,6 @@ export const retryFixture = {
   permanent: [404, 403],
   transient: [429, 500, 503],
   maxRetries: 2,
+  /** 429 responses may carry Retry-After (seconds); honored, capped at 5s. */
+  retryAfter: { parseSeconds: 1, parsedMs: 1000, capMs: 5000 },
 };

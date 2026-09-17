@@ -10,6 +10,7 @@ import type { FetchedDocument, Fetcher } from "./types.js";
 const DEFAULT_TIMEOUT_MS = 10000;
 const DEFAULT_MAX_RETRIES = 2;
 const RETRY_BASE_DELAY_MS = 250;
+const MAX_RETRY_AFTER_MS = 5000;
 
 /**
  * Transient HTTP statuses worth retrying: rate limiting and server-side
@@ -40,7 +41,11 @@ export class HttpFetcher implements Fetcher {
           (e instanceof FetchError && e.transientStatus !== 0) ||
           (e instanceof TypeError && !String(lastError.message).includes("abort"));
         if (!transient || attempt === this.maxRetries) break;
-        await new Promise((r) => setTimeout(r, RETRY_BASE_DELAY_MS * 2 ** attempt));
+        // Honor a server-provided Retry-After when present (capped), else
+        // fall back to bounded exponential backoff.
+        const retryAfter = e instanceof FetchError ? e.retryAfterMs : undefined;
+        const delay = retryAfter ?? RETRY_BASE_DELAY_MS * 2 ** attempt;
+        await new Promise((r) => setTimeout(r, delay));
       }
     }
     throw lastError;
@@ -56,7 +61,14 @@ export class HttpFetcher implements Fetcher {
         headers: { "user-agent": "openclaw-search-cite/0.1" },
       });
       if (!res.ok) {
-        throw new FetchError(`fetch ${url}: HTTP ${res.status}`, isTransientStatus(res.status) ? res.status : 0);
+        if (isTransientStatus(res.status)) {
+          throw new FetchError(
+            `fetch ${url}: HTTP ${res.status}`,
+            res.status,
+            retryAfterMs(res.headers.get("retry-after")),
+          );
+        }
+        throw new FetchError(`fetch ${url}: HTTP ${res.status}`);
       }
       const contentType = res.headers.get("content-type");
       if (contentType && !isSupportedTextContentType(contentType)) {
@@ -81,9 +93,23 @@ class FetchError extends Error {
   constructor(
     message: string,
     readonly transientStatus = 0,
+    readonly retryAfterMs?: number,
   ) {
     super(message);
   }
+}
+
+/**
+ * Parse the Retry-After header. Supports delay-seconds; HTTP dates are
+ * ignored (parsing them adds risk for little gain — fallback backoff is
+ * used instead). Values are capped at MAX_RETRY_AFTER_MS so a hostile
+ * server cannot stall a fetch for minutes.
+ */
+export function retryAfterMs(headerValue: string | null): number | undefined {
+  if (!headerValue) return undefined;
+  const seconds = Number(headerValue);
+  if (!Number.isFinite(seconds) || seconds < 0) return undefined;
+  return Math.min(seconds * 1000, MAX_RETRY_AFTER_MS);
 }
 
 /**
