@@ -100,16 +100,23 @@ class FetchError extends Error {
 }
 
 /**
- * Parse the Retry-After header. Supports delay-seconds; HTTP dates are
- * ignored (parsing them adds risk for little gain — fallback backoff is
- * used instead). Values are capped at MAX_RETRY_AFTER_MS so a hostile
- * server cannot stall a fetch for minutes.
+ * Parse the Retry-After header. Supports delay-seconds and HTTP-date forms
+ * (a future date yields the time until it; past/invalid dates fall back to
+ * undefined so the caller uses its own backoff). Values are capped at
+ * MAX_RETRY_AFTER_MS so a hostile server cannot stall a fetch for minutes.
  */
 export function retryAfterMs(headerValue: string | null): number | undefined {
   if (!headerValue) return undefined;
   const seconds = Number(headerValue);
-  if (!Number.isFinite(seconds) || seconds < 0) return undefined;
-  return Math.min(seconds * 1000, MAX_RETRY_AFTER_MS);
+  if (Number.isFinite(seconds)) {
+    if (seconds < 0) return undefined;
+    return Math.min(seconds * 1000, MAX_RETRY_AFTER_MS);
+  }
+  const when = Date.parse(headerValue);
+  if (Number.isNaN(when)) return undefined;
+  const delta = when - Date.now();
+  if (delta <= 0) return undefined;
+  return Math.min(delta, MAX_RETRY_AFTER_MS);
 }
 
 /**

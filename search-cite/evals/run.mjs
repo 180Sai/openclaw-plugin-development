@@ -49,6 +49,15 @@ const EDGE_CASES = [
       if (retryAfterMs("nonsense") !== undefined) {
         throw new Error("unparseable Retry-After should be undefined");
       }
+      const futureDate = new Date(Date.now() + retryFixture.retryAfter.httpDateFutureDeltaMs).toUTCString();
+      const delta = retryAfterMs(futureDate);
+      if (delta === undefined || delta <= 0 || delta > retryFixture.retryAfter.capMs) {
+        throw new Error("future HTTP-date Retry-After should yield a positive capped delta");
+      }
+      const pastDate = new Date(Date.now() - 60_000).toUTCString();
+      if (retryAfterMs(pastDate) !== retryFixture.retryAfter.httpDatePast) {
+        throw new Error("past HTTP-date Retry-After should be undefined");
+      }
     },
   },
   {
