@@ -13,42 +13,65 @@ fetches the top results, and returns:
 - a `grounded` flag
 - a `citations[]` array, where every entry is a **verified** source
 
+Results are deduplicated before fetching, fetched with bounded concurrency
+(4 at a time), and scored for trust before any citation is built. Quote
+selection prefers informative, query-relevant passages over page chrome —
+nav/boilerplate text (menus, cookie notices, "sign in", footer links) is
+penalized so the citation quote actually supports the answer it is attached
+to.
+
 ## Grounding hard rules (enforced in code)
 
 1. Every citation URL appears in the search provider's returned result set.
 2. Every cited URL was successfully fetched (redirect-resolved final URL).
-3. Every `quote` is a verbatim substring of the fetched document's extracted text.
-4. If grounding is required and any claim fails provenance, the tool returns
-   `grounded: false` with structured errors — never an unverified link.
+3. Every `quote` is a verbatim substring of the fetched document's extracted
+   text (HTML entities are decoded first, so quotes read naturally and still
+   validate).
+4. If grounding is required (`requireGrounding`) and any claim fails
+   provenance, the tool returns a structured failure only — `grounded: false`
+   with an `errors[]` array and no prose answer that could be mistaken for a
+   verified claim. Without `requireGrounding`, a non-grounded result is
+   returned with `grounded: false` instead of hard-failing.
 
 The model can never invent a citation URL; links are produced only from sources
 the tool actually searched for and fetched.
 
-## Providers
+## Search providers
 
-This first iteration ships two providers through the plugin `configSchema`
-(`provider`, `maxSources`, `minTrust`):
+Search goes through a provider abstraction. At runtime the plugin prefers
+whatever web-search provider the OpenClaw gateway is configured with; without
+that surface (unit tests, CI) it falls back to the credential-free mock.
 
 | provider | Purpose |
 |----------|---------|
-| `mock` (default) | Credential-free, deterministic corpus. Proves the full search→fetch→cite pipeline in tests, evals, and CI without any API key. |
+| `openclaw` (default when available) | Wraps the OpenClaw runtime web-search registry — the same provider machinery behind the core `web_search` tool (SearXNG, DuckDuckGo, Brave, Tavily, Gemini, ...). Provider selection, credentials, and retries stay in core; this plugin never sees a search API key. Empty/unshaped provider output raises a structured error — never fabricated or padded results. |
+| `mock` (fallback/tests) | Credential-free, deterministic corpus. Proves the full search→fetch→cite pipeline in tests, evals, and CI without any API key. |
 | `http` | Pluggable real-search skeleton. Adapters for Tavily / SerpAPI / Brave / Bing belong here; their keys stay in the OpenClaw secrets store / env, never in Git. |
+
+Fetching is always real when searching live: the `HttpFetcher` opens and
+parses the actual pages so citations are grounded in fetched text. It follows
+redirects, enforces a 10s timeout, retries transient failures (429/5xx,
+network errors) with bounded exponential backoff (2 retries, 250ms base),
+honors server-provided `Retry-After` headers on 429 (both delay-seconds and
+HTTP-date forms; values capped at 5s so a hostile server cannot stall a
+fetch), rejects binary content-types (only textual pages can be cited), and
+decodes HTML entities before quote validation.
 
 ## Layout
 
 ```text
-src/index.ts         plugin entry — registers search_and_cite
-src/search.ts        provider abstraction (mock + http)
-src/fetch.ts         page retrieval (redirects, timeouts, text extraction)
-src/extract.ts       (reserved) passage extraction
-src/pipeline.ts      search → fetch → select → cite → validate
-src/provenance.ts    evidence-to-claim validation (the grounding core)
-src/scoring.ts       trust scoring + domain filtering + dedup
-src/types.ts         shared types
-tests/               vitest unit tests (incl. grounding invariants)
-evals/               grounding benchmark runner (CI-gated)
-fixtures/            eval fixture pages
-.github/workflows/   CI + grounding-eval pipelines
+src/index.ts           plugin entry — registers search_and_cite
+src/openclaw-search.ts OpenClaw runtime web-search provider adapter
+src/search.ts          provider abstraction (mock + http skeleton)
+src/fetch.ts           page retrieval (redirects, timeouts, retries,
+                       Retry-After, content-type gating, text extraction)
+src/pipeline.ts        search → fetch → select → quote → cite → validate
+src/provenance.ts      evidence-to-claim validation (the grounding core)
+src/scoring.ts         trust scoring + domain filtering + dedup
+src/types.ts           shared types
+tests/                 vitest unit tests (incl. grounding invariants)
+evals/                 grounding benchmark runner (CI-gated)
+fixtures/              eval fixture pages
 ```
 
 ## Development
