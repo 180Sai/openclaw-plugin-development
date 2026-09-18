@@ -121,7 +121,16 @@ describe("retryAfterMs", () => {
     expect(retryAfterMs("0")).toBe(0);
     expect(retryAfterMs("999")).toBe(5000); // capped
     expect(retryAfterMs(null)).toBeUndefined();
-    expect(retryAfterMs("abc")).toBeUndefined(); // HTTP-date form not parsed
     expect(retryAfterMs("-3")).toBeUndefined();
+  });
+
+  it("parses HTTP-date form: future date → capped delta, past date → undefined", () => {
+    const inTwoSeconds = new Date(Date.now() + 2000).toUTCString();
+    const got = retryAfterMs(inTwoSeconds);
+    expect(got).toBeGreaterThan(0);
+    expect(got).toBeLessThanOrEqual(5000);
+    const past = new Date(Date.now() - 60_000).toUTCString();
+    expect(retryAfterMs(past)).toBeUndefined();
+    expect(retryAfterMs("not-a-date, 99Foo 9999 99:99:99 GMT")).toBeUndefined();
   });
 });
