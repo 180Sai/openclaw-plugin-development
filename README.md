@@ -26,3 +26,7 @@ GitHub Actions workflows live in `.github/workflows/`:
 - `agent/*` — iterative improvement branches opened by the hourly automation.
 - PRs required for merges; changes to grounding/provenance or search logic are
   human-reviewed, low-risk changes may auto-merge once CI passes.
+
+---
+
+_Last updated: 2026-09-18_
