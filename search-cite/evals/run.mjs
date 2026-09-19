@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 import { dirname } from "node:path";
 import { MockSearchProvider, MockFetcher } from "../dist/search.js";
 import { runSearchAndCite, firstSentence, selectQuote, fetchWithConcurrency } from "../dist/pipeline.js";
-import { extractText, isTransientStatus, retryAfterMs } from "../dist/fetch.js";
+import { extractText, isTransientStatus, retryAfterMs, backoffWithJitter } from "../dist/fetch.js";
 import { isSupportedTextContentType } from "../dist/fetch.js";
 import { fixtureUrlContent } from "../fixtures/url-periods.mjs";
 import { strictGroundingFixture } from "../fixtures/strict-grounding.mjs";
@@ -19,6 +19,7 @@ import { contentTypeFixture } from "../fixtures/content-type.mjs";
 import { queryQuoteContent } from "../fixtures/query-quotes.mjs";
 import { duplicateResults } from "../fixtures/duplicate-results.mjs";
 import { retryFixture } from "../fixtures/fetch-retry.mjs";
+
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -48,6 +49,21 @@ const EDGE_CASES = [
       if (retryAfterMs("nonsense") !== undefined) {
         throw new Error("unparseable Retry-After should be undefined");
       }
+      const futureDate = new Date(Date.now() + retryFixture.retryAfter.httpDateFutureDeltaMs).toUTCString();
+      const delta = retryAfterMs(futureDate);
+      if (delta === undefined || delta <= 0 || delta > retryFixture.retryAfter.capMs) {
+        throw new Error("future HTTP-date Retry-After should yield a positive capped delta");
+      }
+      const pastDate = new Date(Date.now() - 60_000).toUTCString();
+      if (retryAfterMs(pastDate) !== retryFixture.retryAfter.httpDatePast) {
+        throw new Error("past HTTP-date Retry-After should be undefined");
+      }
+      // Jitter bounds on the exponential fallback.
+      const j = retryFixture.jitter;
+      const mid = backoffWithJitter(2, () => 0.5);
+      if (mid !== j.attempt2NoJitterMs) throw new Error("jitter midpoint should be the plain backoff");
+      if (backoffWithJitter(2, () => 0) !== j.attempt2LowMs) throw new Error("jitter low bound mismatch");
+      if (backoffWithJitter(2, () => 1) !== j.attempt2HighMs) throw new Error("jitter high bound mismatch");
     },
   },
   {

@@ -1,6 +1,6 @@
 /* global Response */
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { HttpFetcher, isTransientStatus, retryAfterMs } from "../src/fetch.js";
+import { HttpFetcher, isTransientStatus, retryAfterMs, backoffWithJitter } from "../src/fetch.js";
 
 function okHtml() {
   return new Response("<html><body><p>hello grounding page</p></body></html>", {
@@ -115,13 +115,31 @@ describe("isTransientStatus", () => {
   });
 });
 
+describe("backoffWithJitter", () => {
+  it("scales exponentially and applies ±20% jitter (rounded)", () => {
+    expect(backoffWithJitter(0, () => 0.5)).toBe(250); // no jitter effect at 0.5
+    expect(backoffWithJitter(2, () => 0)).toBe(800); // 250*4*0.8
+    expect(backoffWithJitter(2, () => 1)).toBe(1200); // 250*4*1.2
+    expect(backoffWithJitter(0, () => 0.25)).toBe(225); // 250*0.9
+  });
+});
+
 describe("retryAfterMs", () => {
   it("parses delay-seconds and caps at 5s", () => {
     expect(retryAfterMs("1")).toBe(1000);
     expect(retryAfterMs("0")).toBe(0);
     expect(retryAfterMs("999")).toBe(5000); // capped
     expect(retryAfterMs(null)).toBeUndefined();
-    expect(retryAfterMs("abc")).toBeUndefined(); // HTTP-date form not parsed
     expect(retryAfterMs("-3")).toBeUndefined();
+  });
+
+  it("parses HTTP-date form: future date → capped delta, past date → undefined", () => {
+    const inTwoSeconds = new Date(Date.now() + 2000).toUTCString();
+    const got = retryAfterMs(inTwoSeconds);
+    expect(got).toBeGreaterThan(0);
+    expect(got).toBeLessThanOrEqual(5000);
+    const past = new Date(Date.now() - 60_000).toUTCString();
+    expect(retryAfterMs(past)).toBeUndefined();
+    expect(retryAfterMs("not-a-date, 99Foo 9999 99:99:99 GMT")).toBeUndefined();
   });
 });

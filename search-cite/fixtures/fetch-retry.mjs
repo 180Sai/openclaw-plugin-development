@@ -17,6 +17,14 @@ export const retryFixture = {
   permanent: [404, 403],
   transient: [429, 500, 503],
   maxRetries: 2,
-  /** 429 responses may carry Retry-After (seconds); honored, capped at 5s. */
-  retryAfter: { parseSeconds: 1, parsedMs: 1000, capMs: 5000 },
+  /** 429 responses may carry Retry-After: delay-seconds or HTTP-date; honored, capped at 5s. */
+  retryAfter: {
+    parseSeconds: 1,
+    parsedMs: 1000,
+    capMs: 5000,
+    httpDateFutureDeltaMs: 2000,
+    httpDatePast: undefined,
+  },
+  /** Exponential backoff fallback carries ±20% jitter (thundering-herd avoidance). */
+  jitter: { bounds: [0.8, 1.2], baseMs: 250, attempt2NoJitterMs: 1000, attempt2LowMs: 800, attempt2HighMs: 1200 },
 };
