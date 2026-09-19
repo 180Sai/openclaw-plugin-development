@@ -15,9 +15,10 @@ and CI coverage. See `search-cite/README.md` for details.
 
 GitHub Actions workflows live in `.github/workflows/`:
 
-- `ci.yml` — lint, typecheck, build, unit tests, grounding eval, and CodeQL on
+- `ci.yml` — lint, typecheck, build, unit tests, and grounding eval on
   push/PR.
-- `eval.yml` — scheduled (every 6h) + PR grounding-score drift check.
+- `eval.yml` — scheduled (every 6h) + PR grounding-score drift check; the
+  eval report is uploaded as a CI artifact.
 
 ## Branch model
 
@@ -25,3 +26,7 @@ GitHub Actions workflows live in `.github/workflows/`:
 - `agent/*` — iterative improvement branches opened by the hourly automation.
 - PRs required for merges; changes to grounding/provenance or search logic are
   human-reviewed, low-risk changes may auto-merge once CI passes.
+
+---
+
+_Last updated: 2026-09-18_

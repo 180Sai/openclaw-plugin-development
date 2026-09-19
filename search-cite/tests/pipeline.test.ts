@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { MockSearchProvider, MockFetcher } from "../src/search.js";
-import { runSearchAndCite, firstSentence, selectQuote, significantTerms, fetchWithConcurrency } from "../src/pipeline.js";
+import { runSearchAndCite, firstSentence, selectQuote, significantTerms, fetchWithConcurrency, splitSentences, fallbackTitle } from "../src/pipeline.js";
 import { validateCitations } from "../src/provenance.js";
 import { scoreDocument, selectSources, dedupeByUrl } from "../src/scoring.js";
 import { extractText } from "../src/fetch.js";
@@ -255,6 +255,48 @@ describe("selectQuote", () => {
     expect(significantTerms("how to ground citations")).toContain("ground");
     expect(significantTerms("how to ground citations")).not.toContain("how");
     expect(significantTerms("the of and")).toHaveLength(0);
+  });
+
+  it("prefers an informative mid-document sentence over page-top boilerplate", () => {
+    const text =
+      "skip to content main menu navigation. " +
+      "the article explains how grounding works with verifiable evidence from fetched pages.";
+    const quote = selectQuote(text, "grounding");
+    expect(text.includes(quote)).toBe(true);
+    expect(quote).toContain("grounding");
+    expect(quote).not.toContain("skip to content");
+    expect(quote).not.toContain("main menu");
+    expect(quote).not.toContain("navigation");
+  });
+
+  it("prefers a body sentence with more query terms over a nav sentence with fewer", () => {
+    const text =
+      "menu node list home about contact. " +
+      "the node runtime for javascript developers provides a solid foundation for node applications.";
+    const quote = selectQuote(text, "node javascript runtime");
+    expect(text.includes(quote)).toBe(true);
+    expect(quote).toContain("node");
+    expect(quote).toContain("javascript");
+    expect(quote).toContain("runtime");
+    expect(quote).not.toContain("menu");
+  });
+
+  it("splits sentences correctly without breaking URL periods", () => {
+    const sentences = splitSentences(
+      "test article visit example.com for more details about grounding. this is the second sentence.",
+    );
+    expect(sentences).toHaveLength(2);
+    expect(sentences[0]).toBe("test article visit example.com for more details about grounding.");
+    expect(sentences[1]).toBe("this is the second sentence.");
+  });
+
+  it("returns a URL-path-derived title when the document title is empty", () => {
+    const title = fallbackTitle("https://example.com/docs/grounding-guide");
+    expect(title).toBe("Grounding Guide");
+  });
+
+  it("returns 'Source' for a URL with no meaningful path segment", () => {
+    expect(fallbackTitle("https://example.com/")).toBe("Source");
   });
 });
 
