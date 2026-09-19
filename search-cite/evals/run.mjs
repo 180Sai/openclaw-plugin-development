@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 import { dirname } from "node:path";
 import { MockSearchProvider, MockFetcher } from "../dist/search.js";
 import { runSearchAndCite, firstSentence, selectQuote, fetchWithConcurrency } from "../dist/pipeline.js";
-import { extractText, isTransientStatus, retryAfterMs } from "../dist/fetch.js";
+import { extractText, isTransientStatus, retryAfterMs, backoffWithJitter } from "../dist/fetch.js";
 import { isSupportedTextContentType } from "../dist/fetch.js";
 import { fixtureUrlContent } from "../fixtures/url-periods.mjs";
 import { strictGroundingFixture } from "../fixtures/strict-grounding.mjs";
@@ -20,6 +20,7 @@ import { queryQuoteContent } from "../fixtures/query-quotes.mjs";
 import { duplicateResults } from "../fixtures/duplicate-results.mjs";
 import { retryFixture } from "../fixtures/fetch-retry.mjs";
 import { boilerplateQuoteContent } from "../fixtures/quote-boilerplate.mjs";
+
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -58,6 +59,12 @@ const EDGE_CASES = [
       if (retryAfterMs(pastDate) !== retryFixture.retryAfter.httpDatePast) {
         throw new Error("past HTTP-date Retry-After should be undefined");
       }
+      // Jitter bounds on the exponential fallback.
+      const j = retryFixture.jitter;
+      const mid = backoffWithJitter(2, () => 0.5);
+      if (mid !== j.attempt2NoJitterMs) throw new Error("jitter midpoint should be the plain backoff");
+      if (backoffWithJitter(2, () => 0) !== j.attempt2LowMs) throw new Error("jitter low bound mismatch");
+      if (backoffWithJitter(2, () => 1) !== j.attempt2HighMs) throw new Error("jitter high bound mismatch");
     },
   },
   {

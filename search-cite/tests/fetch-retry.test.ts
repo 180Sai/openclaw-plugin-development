@@ -1,6 +1,6 @@
 /* global Response */
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { HttpFetcher, isTransientStatus, retryAfterMs } from "../src/fetch.js";
+import { HttpFetcher, isTransientStatus, retryAfterMs, backoffWithJitter } from "../src/fetch.js";
 
 function okHtml() {
   return new Response("<html><body><p>hello grounding page</p></body></html>", {
@@ -112,6 +112,15 @@ describe("isTransientStatus", () => {
     expect(isTransientStatus(404)).toBe(false);
     expect(isTransientStatus(403)).toBe(false);
     expect(isTransientStatus(200)).toBe(false);
+  });
+});
+
+describe("backoffWithJitter", () => {
+  it("scales exponentially and applies ±20% jitter (rounded)", () => {
+    expect(backoffWithJitter(0, () => 0.5)).toBe(250); // no jitter effect at 0.5
+    expect(backoffWithJitter(2, () => 0)).toBe(800); // 250*4*0.8
+    expect(backoffWithJitter(2, () => 1)).toBe(1200); // 250*4*1.2
+    expect(backoffWithJitter(0, () => 0.25)).toBe(225); // 250*0.9
   });
 });
 

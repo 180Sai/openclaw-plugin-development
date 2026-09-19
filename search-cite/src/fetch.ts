@@ -21,6 +21,17 @@ export function isTransientStatus(status: number): boolean {
   return status === 429 || (status >= 500 && status <= 599);
 }
 
+/**
+ * Bounded exponential backoff with ±20% jitter: base * 2^attempt, scaled by
+ * a uniform random factor in [0.8, 1.2]. Jitter prevents concurrent fetchers
+ * from retrying in lockstep against a recovering server. Deterministic per
+ * Math.random(); tests stub Math.random for exact bounds.
+ */
+export function backoffWithJitter(attempt: number, random: () => number = Math.random): number {
+  const jitter = 0.8 + random() * 0.4;
+  return Math.round(RETRY_BASE_DELAY_MS * 2 ** attempt * jitter);
+}
+
 /** Minimal HTTP text fetcher with redirect, timeout, and bounded retries. */
 export class HttpFetcher implements Fetcher {
   constructor(
@@ -42,9 +53,10 @@ export class HttpFetcher implements Fetcher {
           (e instanceof TypeError && !String(lastError.message).includes("abort"));
         if (!transient || attempt === this.maxRetries) break;
         // Honor a server-provided Retry-After when present (capped), else
-        // fall back to bounded exponential backoff.
+        // fall back to bounded exponential backoff with ±20% jitter so
+        // concurrent fetchers don't retry in lockstep (thundering herd).
         const retryAfter = e instanceof FetchError ? e.retryAfterMs : undefined;
-        const delay = retryAfter ?? RETRY_BASE_DELAY_MS * 2 ** attempt;
+        const delay = retryAfter ?? backoffWithJitter(attempt);
         await new Promise((r) => setTimeout(r, delay));
       }
     }

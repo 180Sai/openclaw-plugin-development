@@ -25,4 +25,6 @@ export const retryFixture = {
     httpDateFutureDeltaMs: 2000,
     httpDatePast: undefined,
   },
+  /** Exponential backoff fallback carries ±20% jitter (thundering-herd avoidance). */
+  jitter: { bounds: [0.8, 1.2], baseMs: 250, attempt2NoJitterMs: 1000, attempt2LowMs: 800, attempt2HighMs: 1200 },
 };
