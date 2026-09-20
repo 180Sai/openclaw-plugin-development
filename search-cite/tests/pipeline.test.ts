@@ -298,6 +298,28 @@ describe("selectQuote", () => {
   it("returns 'Source' for a URL with no meaningful path segment", () => {
     expect(fallbackTitle("https://example.com/")).toBe("Source");
   });
+
+  it("does not count a query term that only occurs inside a longer word", () => {
+    const text =
+      "the startup guide begins now. this article has many words. art matters most of all here.";
+    const quote = selectQuote(text, "art");
+    // Substring matching would score all three sentences (startup/article/art)
+    // and tie-break to the first; word-boundary matching must prefer the
+    // sentence where "art" is its own word.
+    expect(text.includes(quote)).toBe(true);
+    expect(quote).toContain("art");
+    expect(quote).not.toContain("startup");
+    expect(quote).not.toContain("article");
+  });
+
+  it("matches query terms at hyphen and period boundaries", () => {
+    const text = "node-runtime is fast and reliable. visit node.js for the full reference.";
+    const quote = selectQuote(text, "node");
+    expect(text.includes(quote)).toBe(true);
+    // The first sentence wins the tie and its "node" sits on a hyphen
+    // boundary — a word-boundary regex must not require whitespace.
+    expect(quote).toContain("node-runtime");
+  });
 });
 
 describe("strict grounding mode (requireGrounding)", () => {
