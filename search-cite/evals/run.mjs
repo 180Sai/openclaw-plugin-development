@@ -20,6 +20,7 @@ import { queryQuoteContent } from "../fixtures/query-quotes.mjs";
 import { duplicateResults } from "../fixtures/duplicate-results.mjs";
 import { retryFixture } from "../fixtures/fetch-retry.mjs";
 import { boilerplateQuoteContent } from "../fixtures/quote-boilerplate.mjs";
+import { wordBoundaryContent } from "../fixtures/word-boundary.mjs";
 
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -184,6 +185,24 @@ const EDGE_CASES = [
       for (const forbidden of boilerplateQuoteContent.forbidden) {
         if (quote.includes(forbidden)) {
           throw new Error(`quote contains boilerplate "${forbidden}": "${quote}"`);
+        }
+      }
+    },
+  },
+  {
+    name: "word-boundary: selectQuote ignores query terms embedded in longer words",
+    run() {
+      const text = wordBoundaryContent.normalizedText;
+      const quote = selectQuote(text, wordBoundaryContent.query);
+      if (!text.includes(quote)) {
+        throw new Error(`quote is not a verbatim substring of the page: "${quote}"`);
+      }
+      if (!quote.includes(wordBoundaryContent.term)) {
+        throw new Error(`quote does not contain term "${wordBoundaryContent.term}": "${quote}"`);
+      }
+      for (const forbidden of wordBoundaryContent.forbidden) {
+        if (quote.includes(forbidden)) {
+          throw new Error(`quote contains substring-mismatched sentence "${forbidden}": "${quote}"`);
         }
       }
     },
