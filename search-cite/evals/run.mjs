@@ -20,6 +20,8 @@ import { queryQuoteContent } from "../fixtures/query-quotes.mjs";
 import { duplicateResults } from "../fixtures/duplicate-results.mjs";
 import { retryFixture } from "../fixtures/fetch-retry.mjs";
 import { boilerplateQuoteContent } from "../fixtures/quote-boilerplate.mjs";
+import { urlVariantResults } from "../fixtures/url-variants.mjs";
+import { dedupeByUrl } from "../dist/scoring.js";
 
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -215,6 +217,59 @@ const EDGE_CASES = [
       const d = await fetcher.fetch(duplicateResults.url);
       if (!d.text.length) {
         throw new Error("fetched deduped document unexpectedly empty");
+      }
+    },
+  },
+  {
+    name: "url-variants: tracking/fragment/trailing-slash variants collapse to one citation",
+    async run() {
+      // Leaf function: variants of one page collapse; distinct pages survive.
+      const urls = urlVariantResults.searchResults.map((r) => r.url);
+      const deduped = dedupeByUrl(urls.map((url) => ({ url })));
+      if (deduped.length !== 1) {
+        throw new Error(`expected 1 deduped URL, got ${deduped.length}: ${deduped.map((d) => d.url).join(",")}`);
+      }
+      if (deduped[0].url !== urlVariantResults.expectedUrl) {
+        throw new Error(`expected canonical ${urlVariantResults.expectedUrl}, got ${deduped[0].url}`);
+      }
+      // End-to-end: dedupe happens BEFORE fetch, so the same page is never
+      // fetched twice and cites exactly the first-returned URL.
+      const fetches = [];
+      const fetcher = {
+        async fetch(url) {
+          fetches.push(url);
+          if (url === "https://example.com/guide") {
+            return {
+              url,
+              title: "Example Guide",
+              text: "the official example guide explains how to configure grounded search and cite primary sources with verifiable evidence.",
+              fetchedAt: new Date().toISOString(),
+            };
+          }
+          throw new Error(`unexpected fetch of ${url}`);
+        },
+      };
+      const variant = {
+        id: "variants",
+        async search() {
+          return urlVariantResults.searchResults;
+        },
+      };
+      const out = await runSearchAndCite(
+        { provider: variant, fetcher, maxSources: 5, minTrust: 0.5 },
+        { query: "guide" },
+      );
+      if (!out.grounded) {
+        throw new Error(`expected grounded output, got grounded=${out.grounded}`);
+      }
+      if (out.citations.length !== urlVariantResults.expectedCitationCount) {
+        throw new Error(`expected ${urlVariantResults.expectedCitationCount} citation, got ${out.citations.length}`);
+      }
+      if (out.citations[0].url !== urlVariantResults.expectedUrl) {
+        throw new Error(`expected citation url ${urlVariantResults.expectedUrl}, got ${out.citations[0].url}`);
+      }
+      if (fetches.length !== 1 || fetches[0] !== urlVariantResults.expectedUrl) {
+        throw new Error(`expected exactly 1 fetch of ${urlVariantResults.expectedUrl}, got ${fetches.join(",")}`);
       }
     },
   },

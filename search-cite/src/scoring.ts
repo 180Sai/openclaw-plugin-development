@@ -49,13 +49,56 @@ export function selectSources(
     .map((x) => x.doc);
 }
 
-/** Deduplicate by canonical URL. */
+/**
+ * Query/tracking parameters that identify the same page regardless of value.
+ * Provider result sets often include utm_* / click-tracking variants of one
+ * URL; these must not create duplicate citations.
+ */
+const TRACKING_PARAMS = [
+  "utm_source",
+  "utm_medium",
+  "utm_campaign",
+  "utm_term",
+  "utm_content",
+  "fbclid",
+  "gclid",
+  "mc_cid",
+  "mc_eid",
+];
+
+/**
+ * Canonical key for dedupe comparisons: origin + path (no trailing slash) +
+ * query minus tracking params, fragment stripped. Non-URL strings fall back
+ * to an exact match so malformed inputs never collide.
+ */
+export function canonicalUrlKey(url: string): string {
+  try {
+    const u = new URL(url);
+    u.hash = "";
+    for (const p of TRACKING_PARAMS) u.searchParams.delete(p);
+    const path =
+      u.pathname.length > 1 && u.pathname.endsWith("/")
+        ? u.pathname.slice(0, -1)
+        : u.pathname;
+    return `${u.origin}${path}${u.search}`;
+  } catch {
+    return url;
+  }
+}
+
+/**
+ * Deduplicate by canonical URL. Variants of the same page (fragment,
+ * tracking params, trailing slash) collapse to one entry; the FIRST
+ * occurrence's original URL is kept so provenance (URL ∈ provider result
+ * set, actually fetched) is never broken by a synthesized URL.
+ */
 export function dedupeByUrl<T extends { url: string }>(items: T[]): T[] {
   const seen = new Set<string>();
   const out: T[] = [];
   for (const it of items) {
-    if (!seen.has(it.url)) {
-      seen.add(it.url);
+    const key = canonicalUrlKey(it.url);
+    if (!seen.has(key)) {
+      seen.add(key);
       out.push(it);
     }
   }
