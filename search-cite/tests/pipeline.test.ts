@@ -350,8 +350,9 @@ describe("scoring", () => {
       { url: `${base}` },
       { url: `${base}/` },
       { url: `${base}#section-2` },
-      { url: `${base}?utm_source=newsletter&utm_medium=email` },
+      { url: `${base}?utm_source=newsletter&utm_medium=email&srsltid=AfmBOoq1` },
       { url: `${base}?gclid=Cj0K&utm_campaign=launch` },
+      { url: `${base}?msclkid=abc123` },
     ];
     const deduped = dedupeByUrl(variants);
     expect(deduped).toHaveLength(1);

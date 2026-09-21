@@ -64,6 +64,10 @@ const TRACKING_PARAMS = [
   "gclid",
   "mc_cid",
   "mc_eid",
+  "yclid",
+  "msclkid",
+  "srsltid",
+  "igshid",
 ];
 
 /**
