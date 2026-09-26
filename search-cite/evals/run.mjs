@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 import { dirname } from "node:path";
 import { MockSearchProvider, MockFetcher } from "../dist/search.js";
 import { runSearchAndCite, firstSentence, selectQuote, fetchWithConcurrency } from "../dist/pipeline.js";
-import { extractText, isTransientStatus, retryAfterMs, backoffWithJitter } from "../dist/fetch.js";
+import { extractText, extractTitle, isTransientStatus, retryAfterMs, backoffWithJitter } from "../dist/fetch.js";
 import { isSupportedTextContentType } from "../dist/fetch.js";
 import { fixtureUrlContent } from "../fixtures/url-periods.mjs";
 import { strictGroundingFixture } from "../fixtures/strict-grounding.mjs";
@@ -20,6 +20,7 @@ import { queryQuoteContent } from "../fixtures/query-quotes.mjs";
 import { duplicateResults } from "../fixtures/duplicate-results.mjs";
 import { retryFixture } from "../fixtures/fetch-retry.mjs";
 import { boilerplateQuoteContent } from "../fixtures/quote-boilerplate.mjs";
+import { entityFixture } from "../fixtures/entity-decoding.mjs";
 
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -185,6 +186,18 @@ const EDGE_CASES = [
         if (quote.includes(forbidden)) {
           throw new Error(`quote contains boilerplate "${forbidden}": "${quote}"`);
         }
+      }
+    },
+  },
+  {
+    name: "entity-decoding: extractTitle decodes entities like extractText",
+    run() {
+      const title = extractTitle(entityFixture.titleHtml);
+      if (title !== entityFixture.decodedTitle) {
+        throw new Error(`title entities not decoded: got "${title}" expected "${entityFixture.decodedTitle}"`);
+      }
+      if (/&(amp|#\d+|eacute|#x[0-9a-f]+);/i.test(title)) {
+        throw new Error(`raw entity leaked into decoded title: "${title}"`);
       }
     },
   },

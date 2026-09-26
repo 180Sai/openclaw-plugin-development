@@ -17,4 +17,8 @@ export const entityFixture = {
 </body></html>`,
   /** The text after extractText + lowercasing (as the fetcher would produce). */
   normalizedText: "entity article fish & chips cost 5€. tom & jerry • café <3 grounding",
+  /** An HTML fragment whose <title> contains raw entities. */
+  titleHtml: `<html><head><title>Caf&#233; &amp; Co &#8212; Guide</title></head></html>`,
+  /** titleHtml decoded: entities resolved, whitespace collapsed. */
+  decodedTitle: "Café & Co — Guide",
 };

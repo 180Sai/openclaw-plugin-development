@@ -199,8 +199,16 @@ export function extractText(html: string): string {
     .trim();
 }
 
-/** Extract <title> from HTML. */
+/**
+ * Extract <title> from HTML, decoding HTML entities.
+ *
+ * Titles are user-facing metadata on every citation, so raw entities (e.g.
+ * "Caf&eacute; &amp; Co") must not leak through to the model or the citation
+ * list — `extractText` already decodes them for the quote-substring contract,
+ * and titles should be just as clean. Unknown entities are left untouched by
+ * `decodeEntities`.
+ */
 export function extractTitle(html: string): string | null {
   const m = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
-  return m ? m[1].replace(/\s+/g, " ").trim() : null;
+  return m ? decodeEntities(m[1]).replace(/\s+/g, " ").trim() : null;
 }
