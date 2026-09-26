@@ -202,6 +202,19 @@ const EDGE_CASES = [
     },
   },
   {
+    name: "entity-decoding: named Latin-1 entities decode in text and titles",
+    run() {
+      const title = extractTitle(entityFixture.namedTitleHtml);
+      if (title !== entityFixture.namedDecodedTitle) {
+        throw new Error(`named title entities not decoded: got "${title}" expected "${entityFixture.namedDecodedTitle}"`);
+      }
+      const text = extractText("<p>Caf&eacute; &amp; Co &mdash; Guide &Auml; &frac12;</p>").toLowerCase();
+      if (text !== "café & co — guide ä ½") {
+        throw new Error(`named text entities not decoded: "${text}"`);
+      }
+    },
+  },
+  {
     name: "duplicate-results: dedupeByUrl drops duplicate URLs before fetch",
     async run() {
       const fetcher = new MockFetcher();
