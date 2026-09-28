@@ -11,6 +11,15 @@ const DEFAULT_TIMEOUT_MS = 10000;
 const DEFAULT_MAX_RETRIES = 2;
 const RETRY_BASE_DELAY_MS = 250;
 const MAX_RETRY_AFTER_MS = 5000;
+/**
+ * Reject response bodies larger than this many bytes/chars.
+ *
+ * Quotes must be verbatim substrings of the full fetched text (grounding
+ * invariant), so truncating a huge body would break provenance and an
+ * unbounded read is a memory hazard. Oversized responses are therefore
+ * rejected as permanent errors — never retried, never cited.
+ */
+const DEFAULT_MAX_BODY_BYTES = 2 * 1024 * 1024; // 2 MiB
 
 /**
  * Transient HTTP statuses worth retrying: rate limiting and server-side
@@ -37,6 +46,7 @@ export class HttpFetcher implements Fetcher {
   constructor(
     private readonly timeoutMs: number = DEFAULT_TIMEOUT_MS,
     private readonly maxRetries: number = DEFAULT_MAX_RETRIES,
+    private readonly maxBodyBytes: number = DEFAULT_MAX_BODY_BYTES,
   ) {}
 
   async fetch(url: string): Promise<FetchedDocument> {
@@ -86,8 +96,24 @@ export class HttpFetcher implements Fetcher {
       if (contentType && !isSupportedTextContentType(contentType)) {
         throw new FetchError(`fetch ${url}: unsupported content-type "${contentType}" (binary payloads cannot be cited)`);
       }
+      // Reject oversized bodies up front when the server declares a
+      // Content-Length, before reading anything into memory.
+      const contentLength = res.headers.get("content-length");
+      if (isOversizedContentLength(contentLength, this.maxBodyBytes)) {
+        throw new FetchError(
+          `fetch ${url}: content-length ${contentLength} exceeds ${this.maxBodyBytes}-byte cap (oversized bodies are never cited)`,
+        );
+      }
       const finalUrl = res.url || url;
       const raw = await res.text();
+      // A server may omit or lie about Content-Length — enforce the cap on
+      // the materialized body too. Truncation is forbidden (quotes must stay
+      // verbatim substrings), so oversized bodies are rejected outright.
+      if (raw.length > this.maxBodyBytes) {
+        throw new FetchError(
+          `fetch ${url}: response body exceeds ${this.maxBodyBytes}-char cap (oversized bodies are never cited)`,
+        );
+      }
       const text = extractText(raw);
       const title = extractTitle(raw) ?? new URL(finalUrl).hostname;
       return { url: finalUrl, title, text: text.toLowerCase(), fetchedAt: new Date().toISOString() };
@@ -129,6 +155,19 @@ export function retryAfterMs(headerValue: string | null): number | undefined {
   const delta = when - Date.now();
   if (delta <= 0) return undefined;
   return Math.min(delta, MAX_RETRY_AFTER_MS);
+}
+
+/**
+ * True when an HTTP Content-Length header declares a body larger than the
+ * cap. Missing/unparseable/negative values return false — the caller then
+ * falls back to the post-read length check, so a silent oversized body is
+ * still rejected after materialization.
+ */
+export function isOversizedContentLength(headerValue: string | null, maxBodyBytes: number): boolean {
+  if (!headerValue) return false;
+  const bytes = Number(headerValue);
+  if (!Number.isFinite(bytes) || bytes < 0) return false;
+  return bytes > maxBodyBytes;
 }
 
 /**

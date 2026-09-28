@@ -11,7 +11,7 @@ import { dirname } from "node:path";
 import { MockSearchProvider, MockFetcher } from "../dist/search.js";
 import { runSearchAndCite, firstSentence, selectQuote, fetchWithConcurrency } from "../dist/pipeline.js";
 import { extractText, isTransientStatus, retryAfterMs, backoffWithJitter } from "../dist/fetch.js";
-import { isSupportedTextContentType } from "../dist/fetch.js";
+import { isSupportedTextContentType, isOversizedContentLength, HttpFetcher } from "../dist/fetch.js";
 import { fixtureUrlContent } from "../fixtures/url-periods.mjs";
 import { strictGroundingFixture } from "../fixtures/strict-grounding.mjs";
 import { concurrencyFixture } from "../fixtures/fetch-concurrency.mjs";
@@ -20,6 +20,7 @@ import { queryQuoteContent } from "../fixtures/query-quotes.mjs";
 import { duplicateResults } from "../fixtures/duplicate-results.mjs";
 import { retryFixture } from "../fixtures/fetch-retry.mjs";
 import { boilerplateQuoteContent } from "../fixtures/quote-boilerplate.mjs";
+import { bodyCapFixture } from "../fixtures/body-cap.mjs";
 import { urlVariantResults } from "../fixtures/url-variants.mjs";
 import { dedupeByUrl } from "../dist/scoring.js";
 import { wordBoundaryContent } from "../fixtures/word-boundary.mjs";
@@ -144,6 +145,42 @@ const EDGE_CASES = [
       }
       if (!isSupportedTextContentType("")) {
         throw new Error("missing content-type must be tolerated");
+      }
+    },
+  },
+  {
+    name: "body-cap: oversized response bodies are rejected, never truncated or retried",
+    async run() {
+      const cap = bodyCapFixture.capBytes;
+      // Declared oversized Content-Length is rejected on the header alone.
+      if (!isOversizedContentLength(bodyCapFixture.oversized.declaredLength, cap)) {
+        throw new Error("declared oversized content-length must be flagged");
+      }
+      if (isOversizedContentLength(String(bodyCapFixture.underCap.bodyChars), cap)) {
+        throw new Error("under-cap content-length must not be flagged");
+      }
+      // Post-read enforcement: server omits Content-Length, body is huge.
+      let calls = 0;
+      const hangOrig = globalThis.fetch;
+      globalThis.fetch = async () => {
+        calls += 1;
+        return new Response("x".repeat(bodyCapFixture.oversized.undeclaredBodyChars), {
+          status: 200,
+          headers: { "content-type": "text/plain" },
+        });
+      };
+      try {
+        const fetcher = new HttpFetcher(1000, 3, cap);
+        let rejected = false;
+        try {
+          await fetcher.fetch("https://example.com/lying");
+        } catch (e) {
+          rejected = bodyCapFixture.oversized.permanentMsg.test(e instanceof Error ? e.message : String(e));
+        }
+        if (!rejected) throw new Error("oversized body without content-length must be rejected after read");
+        if (calls !== 1) throw new Error(`oversized-body rejection must not be retried (calls=${calls})`);
+      } finally {
+        globalThis.fetch = hangOrig;
       }
     },
   },
