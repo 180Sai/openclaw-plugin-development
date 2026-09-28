@@ -11,8 +11,6 @@ import { dirname } from "node:path";
 import { MockSearchProvider, MockFetcher } from "../dist/search.js";
 import { runSearchAndCite, firstSentence, selectQuote, fetchWithConcurrency } from "../dist/pipeline.js";
 import { extractText, extractTitle, isTransientStatus, retryAfterMs, backoffWithJitter } from "../dist/fetch.js";
-import { isSupportedTextContentType } from "../dist/fetch.js";
-import { extractText, isTransientStatus, retryAfterMs, backoffWithJitter } from "../dist/fetch.js";
 import { isSupportedTextContentType, isOversizedContentLength, HttpFetcher } from "../dist/fetch.js";
 import { fixtureUrlContent } from "../fixtures/url-periods.mjs";
 import { strictGroundingFixture } from "../fixtures/strict-grounding.mjs";
