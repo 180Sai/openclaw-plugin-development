@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 import { dirname } from "node:path";
 import { MockSearchProvider, MockFetcher } from "../dist/search.js";
 import { runSearchAndCite, firstSentence, selectQuote, fetchWithConcurrency } from "../dist/pipeline.js";
-import { extractText, isTransientStatus, retryAfterMs, backoffWithJitter } from "../dist/fetch.js";
+import { extractText, extractTitle, isTransientStatus, retryAfterMs, backoffWithJitter } from "../dist/fetch.js";
 import { isSupportedTextContentType, isOversizedContentLength, HttpFetcher } from "../dist/fetch.js";
 import { fixtureUrlContent } from "../fixtures/url-periods.mjs";
 import { strictGroundingFixture } from "../fixtures/strict-grounding.mjs";
@@ -20,6 +20,7 @@ import { queryQuoteContent } from "../fixtures/query-quotes.mjs";
 import { duplicateResults } from "../fixtures/duplicate-results.mjs";
 import { retryFixture } from "../fixtures/fetch-retry.mjs";
 import { boilerplateQuoteContent } from "../fixtures/quote-boilerplate.mjs";
+import { entityFixture } from "../fixtures/entity-decoding.mjs";
 import { bodyCapFixture } from "../fixtures/body-cap.mjs";
 import { urlVariantResults } from "../fixtures/url-variants.mjs";
 import { dedupeByUrl } from "../dist/scoring.js";
@@ -227,6 +228,31 @@ const EDGE_CASES = [
         }
       }
     },
+  },
+  {
+    name: "entity-decoding: extractTitle decodes entities like extractText",
+    run() {
+      const title = extractTitle(entityFixture.titleHtml);
+      if (title !== entityFixture.decodedTitle) {
+        throw new Error(`title entities not decoded: got "${title}" expected "${entityFixture.decodedTitle}"`);
+      }
+      if (/&(amp|#\d+|eacute|#x[0-9a-f]+);/i.test(title)) {
+        throw new Error(`raw entity leaked into decoded title: "${title}"`);
+      }
+    },
+  },
+  {
+    name: "entity-decoding: named Latin-1 entities decode in text and titles",
+    run() {
+      const title = extractTitle(entityFixture.namedTitleHtml);
+      if (title !== entityFixture.namedDecodedTitle) {
+        throw new Error(`named title entities not decoded: got "${title}" expected "${entityFixture.namedDecodedTitle}"`);
+      }
+      const text = extractText("<p>Caf&eacute; &amp; Co &mdash; Guide &Auml; &frac12;</p>").toLowerCase();
+      if (text !== "café & co — guide ä ½") {
+        throw new Error(`named text entities not decoded: "${text}"`);
+      }
+    }
   },
   {
     name: "word-boundary: selectQuote ignores query terms embedded in longer words",

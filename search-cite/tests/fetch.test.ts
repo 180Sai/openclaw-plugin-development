@@ -16,6 +16,11 @@ describe("extractText HTML entity decoding", () => {
     expect(text).toBe("& < > A"); // &#65; = 'A'
   });
 
+  it("decodes Latin-1 named entities in text (not just the XML set)", () => {
+    const text = extractText("<p>Caf&eacute; &amp; Co &mdash; Guide</p>").toLowerCase();
+    expect(text).toBe("café & co — guide");
+  });
+
   it("normalizes non-breaking spaces to regular spaces", () => {
     expect(extractText("<p>a\u00a0b</p>")).toBe("a b");
     expect(extractText("&nbsp;leading")).toBe("leading");
@@ -25,9 +30,31 @@ describe("extractText HTML entity decoding", () => {
     expect(decodeEntities("a &unknown; b")).toBe("a &unknown; b");
   });
 
-  it("does not alter title extraction (raw title preserved)", () => {
-    // extractTitle is entity-agnostic by design: titles are cosmetic and not
-    // part of the quote-substring grounding contract.
-    expect(extractTitle("<html><head><title>Caf\u00e9 &amp; Co</title></head></html>")).toBe("Café &amp; Co");
+  it("decodes named entities in the title like extractText does for text", () => {
+    expect(extractTitle("<html><head><title>Caf\u00e9 &amp; Co</title></head></html>")).toBe("Café & Co");
+  });
+
+  it("decodes HTML entities in the extracted title so they never leak to users", () => {
+    expect(extractTitle(entityFixture.titleHtml)).toBe(entityFixture.decodedTitle);
+  });
+
+  it("decodes NAMED Latin-1 entities in titles (Caf&eacute; &amp; Co → Café & Co)", () => {
+    expect(extractTitle(entityFixture.namedTitleHtml)).toBe(entityFixture.namedDecodedTitle);
+    expect(extractTitle("<title>R&#233;sum&eacute;&hellip; &Auml; &uacute; &uuml; &frac12;</title>")).toBe("Résumé… Ä ú ü ½");
+  });
+
+  it("decodes a bare UTF-8 title unchanged and collapses whitespace", () => {
+    expect(extractTitle("<title>A  B\n C</title>")).toBe("A B C");
+  });
+
+  it("collapses whitespace AFTER decoding, so nbsp entities don't leak double spaces", () => {
+    // decodeEntities maps &nbsp; to a literal space; decoding before the
+    // whitespace collapse (same order as extractText) keeps the title clean.
+    expect(extractTitle("<title>A&nbsp;&nbsp;B</title>")).toBe("A B");
+    expect(extractTitle("<title>A&#160; B</title>")).toBe("A B");
+  });
+
+  it("returns null when no title element exists", () => {
+    expect(extractTitle("<html><body><p>no title here</p></body></html>")).toBeNull();
   });
 });

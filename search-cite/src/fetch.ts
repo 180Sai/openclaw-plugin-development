@@ -189,15 +189,55 @@ const TEXT_MEDIA_TYPES = new Set([
   "application/ld+json",
 ]);
 
-/** Strip scripts/styles/tags and normalize whitespace from HTML. */
+/**
+ * Named HTML entities: the XML predefined set plus the Latin-1 supplement
+ * and common punctuation that actually appears in page titles/text
+ * (&eacute;/&Eacute;, &uuml;/&Uuml;, &mdash;, &hellip;, curly quotes, ©, °,
+ * ±, ·, •, «», ¼½¾, ×, ÷, €). Lookup is exact-first (HTML entity names
+ * are case-sensitive: &Eacute; = É, &eacute; = é) with a lowercase
+ * fallback for sloppy writers (&Amp;). Digits are allowed in names
+ * (&frac12;, &sup2;). Unknown names are left untouched.
+ */
 const NAMED_ENTITIES: Record<string, string> = {
-  amp: "&",
-  lt: "<",
-  gt: ">",
-  quot: '"',
+  // XML predefined
+  amp: "&", AMP: "&", Amp: "&",
+  lt: "<", LT: "<", Lt: "<",
+  gt: ">", GT: ">", Gt: ">",
+  quot: '"', QUOT: '"', Quot: '"',
   apos: "'",
   nbsp: " ",
+  // Latin-1 letters, lowercase + uppercase variants
+  aacute: "á", Aacute: "Á", acirc: "â", Acirc: "Â", agrave: "à", Agrave: "À",
+  aring: "å", Aring: "Å", atilde: "ã", Atilde: "Ã", auml: "ä", Auml: "Ä",
+  ccedil: "ç", Ccedil: "Ç", eacute: "é", Eacute: "É", ecirc: "ê", Ecirc: "Ê",
+  egrave: "è", Egrave: "È", euml: "ë", Euml: "Ë", iacute: "í", Iacute: "Í",
+  icirc: "î", Icirc: "Î", igrave: "ì", Igrave: "Ì", iuml: "ï", Iuml: "Ï",
+  ntilde: "ñ", Ntilde: "Ñ", oacute: "ó", Oacute: "Ó", ocirc: "ô", Ocirc: "Ô",
+  ograve: "ò", Ograve: "Ò", oslash: "ø", Oslash: "Ø", otilde: "õ", Otilde: "Õ",
+  ouml: "ö", Ouml: "Ö", szlig: "ß", uacute: "ú", Uacute: "Ú", ucirc: "û",
+  Ucirc: "Û", ugrave: "ù", Ugrave: "Ù", uuml: "ü", Uuml: "Ü",
+  yacute: "ý", Yacute: "Ý", yuml: "ÿ", Yuml: "Ÿ",
+  // Latin-1 symbols & common punctuation
+  copy: "©", reg: "®", trade: "™", deg: "°", plusmn: "±", para: "¶",
+  sect: "§", middot: "·", bull: "•", laquo: "«", raquo: "»",
+  ndash: "–", mdash: "—", hellip: "…", lsquo: "‘", rsquo: "’",
+  ldquo: "“", rdquo: "”", permil: "‰", micro: "µ", euro: "€",
+  frac12: "½", frac14: "¼", frac34: "¾", times: "×", divide: "÷",
+  iexcl: "¡", iquest: "¿", cent: "¢", pound: "£", curren: "¤", yen: "¥",
+  brvbar: "¦", ordf: "ª", ordm: "º", not: "¬", macr: "¯",
+  sup1: "¹", sup2: "²", sup3: "³", acute: "´", cedil: "¸", uml: "¨",
+  dagger: "†", Dagger: "‡", prime: "′", Prime: "″", lsaquo: "‹", rsaquo: "›",
 };
+
+/**
+ * Decode a named HTML entity, exact-name first (HTML entity names are
+ * case-sensitive: &Eacute; and &eacute; differ), then case-insensitively
+ * for sloppy sources. Returns undefined when the name is unknown so the
+ * caller keeps it verbatim.
+ */
+function decodeNamedEntity(name: string): string | undefined {
+  return NAMED_ENTITIES[name] ?? NAMED_ENTITIES[name.toLowerCase()];
+}
 
 /**
  * Decode common HTML entities (named + decimal/hex numeric) in extracted
@@ -207,7 +247,7 @@ const NAMED_ENTITIES: Record<string, string> = {
  * citation quote. Unknown entities are left untouched.
  */
 export function decodeEntities(input: string): string {
-  return input.replace(/&(#\d+|#x[0-9a-fA-F]+|[a-z]+);/gi, (m, body: string) => {
+  return input.replace(/&(#\d+|#x[0-9a-fA-F]+|[a-z0-9]+);/gi, (m, body: string) => {
     if (body.startsWith("#")) {
       const code =
         body[1] === "x" || body[1] === "X"
@@ -218,7 +258,7 @@ export function decodeEntities(input: string): string {
       }
       return m;
     }
-    return NAMED_ENTITIES[body.toLowerCase()] ?? m;
+    return decodeNamedEntity(body) ?? m;
   });
 }
 
@@ -238,8 +278,16 @@ export function extractText(html: string): string {
     .trim();
 }
 
-/** Extract <title> from HTML. */
+/**
+ * Extract <title> from HTML, decoding HTML entities.
+ *
+ * Titles are user-facing metadata on every citation, so raw entities (e.g.
+ * "Caf&eacute; &amp; Co") must not leak through to the model or the citation
+ * list — `extractText` already decodes them for the quote-substring contract,
+ * and titles should be just as clean. Unknown entities are left untouched by
+ * `decodeEntities`.
+ */
 export function extractTitle(html: string): string | null {
   const m = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
-  return m ? m[1].replace(/\s+/g, " ").trim() : null;
+  return m ? decodeEntities(m[1]).replace(/\s+/g, " ").trim() : null;
 }
