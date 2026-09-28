@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { MockSearchProvider, MockFetcher } from "../src/search.js";
 import { runSearchAndCite, firstSentence, selectQuote, significantTerms, fetchWithConcurrency, splitSentences, fallbackTitle } from "../src/pipeline.js";
 import { validateCitations } from "../src/provenance.js";
-import { scoreDocument, selectSources, dedupeByUrl } from "../src/scoring.js";
+import { scoreDocument, selectSources, dedupeByUrl, canonicalUrlKey } from "../src/scoring.js";
 import { extractText } from "../src/fetch.js";
 import { OpenClawWebSearchProvider, extractResultsFromWebSearchOutput } from "../src/openclaw-search.js";
 import type { FetchedDocument, SearchResult } from "../src/types.js";
@@ -364,6 +364,41 @@ describe("scoring", () => {
   it("dedupes by canonical URL", () => {
     const items = [{ url: "a" }, { url: "a" }, { url: "b" }];
     expect(dedupeByUrl(items)).toHaveLength(2);
+  });
+
+  it("collapses tracking-param/fragment/trailing-slash URL variants as one source", () => {
+    const base = "https://example.com/docs/guide";
+    const variants = [
+      { url: `${base}` },
+      { url: `${base}/` },
+      { url: `${base}#section-2` },
+      { url: `${base}?utm_source=newsletter&utm_medium=email&srsltid=AfmBOoq1` },
+      { url: `${base}?gclid=Cj0K&utm_campaign=launch` },
+      { url: `${base}?msclkid=abc123` },
+    ];
+    const deduped = dedupeByUrl(variants);
+    expect(deduped).toHaveLength(1);
+    // First occurrence's original URL is preserved for provenance.
+    expect(deduped[0].url).toBe(base);
+  });
+
+  it("keeps distinct pages that share a query prefix", () => {
+    const items = [
+      { url: "https://example.com/search?q=1" },
+      { url: "https://example.com/search?q=2" },
+    ];
+    expect(dedupeByUrl(items)).toHaveLength(2);
+  });
+
+  it("falls back to exact match for unparseable URLs", () => {
+    const items = [{ url: "not a url" }, { url: "not a url" }, { url: "other" }];
+    expect(dedupeByUrl(items)).toHaveLength(2);
+  });
+
+  it("canonicalUrlKey is stable across variant orderings", () => {
+    const a = "https://example.com/x?utm_campaign=summer&q=1";
+    const b = "https://example.com/x/?q=1#top";
+    expect(canonicalUrlKey(a)).toBe(canonicalUrlKey(b));
   });
 
   it("selects only sources above the threshold", () => {
