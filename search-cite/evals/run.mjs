@@ -9,7 +9,7 @@
 import { fileURLToPath } from "node:url";
 import { dirname } from "node:path";
 import { MockSearchProvider, MockFetcher } from "../dist/search.js";
-import { runSearchAndCite, firstSentence, selectQuote, fetchWithConcurrency } from "../dist/pipeline.js";
+import { runSearchAndCite, firstSentence, selectQuote, significantTerms, fetchWithConcurrency } from "../dist/pipeline.js";
 import { extractText, extractTitle, isTransientStatus, retryAfterMs, backoffWithJitter } from "../dist/fetch.js";
 import { isSupportedTextContentType, isOversizedContentLength, HttpFetcher } from "../dist/fetch.js";
 import { fixtureUrlContent } from "../fixtures/url-periods.mjs";
@@ -25,6 +25,7 @@ import { bodyCapFixture } from "../fixtures/body-cap.mjs";
 import { urlVariantResults } from "../fixtures/url-variants.mjs";
 import { dedupeByUrl } from "../dist/scoring.js";
 import { wordBoundaryContent } from "../fixtures/word-boundary.mjs";
+import { unicodeTermContent } from "../fixtures/unicode-terms.mjs";
 
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -269,6 +270,34 @@ const EDGE_CASES = [
         if (quote.includes(forbidden)) {
           throw new Error(`quote contains substring-mismatched sentence "${forbidden}": "${quote}"`);
         }
+      }
+    },
+  },
+  {
+    name: "unicode-terms: accented words are real word boundaries for term matching",
+    run() {
+      // Accented letters must count as word chars: "art" must NOT match
+      // inside "artículo", and the query-level extraction must keep accented
+      // terms intact ("café" ≠ "caf").
+      const text = unicodeTermContent.normalizedText;
+      const quote = selectQuote(text, unicodeTermContent.query);
+      if (!text.includes(quote)) {
+        throw new Error(`quote is not a verbatim substring of the page: "${quote}"`);
+      }
+      if (!quote.includes(unicodeTermContent.term)) {
+        throw new Error(`quote does not contain term "${unicodeTermContent.term}": "${quote}"`);
+      }
+      for (const forbidden of unicodeTermContent.forbidden) {
+        if (quote.includes(forbidden)) {
+          throw new Error(`quote contains substring-mismatched sentence "${forbidden}": "${quote}"`);
+        }
+      }
+      const terms = significantTerms("best café in paris");
+      if (!terms.includes("café")) {
+        throw new Error(`accented query term was mangled: got ${JSON.stringify(terms)}`);
+      }
+      if (terms.includes("caf")) {
+        throw new Error(`ASCII-truncated term leaked into extraction: ${JSON.stringify(terms)}`);
       }
     },
   },
