@@ -12,6 +12,8 @@ import { MockSearchProvider, MockFetcher } from "../dist/search.js";
 import { runSearchAndCite, firstSentence, selectQuote, fetchWithConcurrency } from "../dist/pipeline.js";
 import { extractText, extractTitle, isTransientStatus, retryAfterMs, backoffWithJitter } from "../dist/fetch.js";
 import { isSupportedTextContentType } from "../dist/fetch.js";
+import { extractText, isTransientStatus, retryAfterMs, backoffWithJitter } from "../dist/fetch.js";
+import { isSupportedTextContentType, isOversizedContentLength, HttpFetcher } from "../dist/fetch.js";
 import { fixtureUrlContent } from "../fixtures/url-periods.mjs";
 import { strictGroundingFixture } from "../fixtures/strict-grounding.mjs";
 import { concurrencyFixture } from "../fixtures/fetch-concurrency.mjs";
@@ -21,6 +23,10 @@ import { duplicateResults } from "../fixtures/duplicate-results.mjs";
 import { retryFixture } from "../fixtures/fetch-retry.mjs";
 import { boilerplateQuoteContent } from "../fixtures/quote-boilerplate.mjs";
 import { entityFixture } from "../fixtures/entity-decoding.mjs";
+import { bodyCapFixture } from "../fixtures/body-cap.mjs";
+import { urlVariantResults } from "../fixtures/url-variants.mjs";
+import { dedupeByUrl } from "../dist/scoring.js";
+import { wordBoundaryContent } from "../fixtures/word-boundary.mjs";
 
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -146,6 +152,42 @@ const EDGE_CASES = [
     },
   },
   {
+    name: "body-cap: oversized response bodies are rejected, never truncated or retried",
+    async run() {
+      const cap = bodyCapFixture.capBytes;
+      // Declared oversized Content-Length is rejected on the header alone.
+      if (!isOversizedContentLength(bodyCapFixture.oversized.declaredLength, cap)) {
+        throw new Error("declared oversized content-length must be flagged");
+      }
+      if (isOversizedContentLength(String(bodyCapFixture.underCap.bodyChars), cap)) {
+        throw new Error("under-cap content-length must not be flagged");
+      }
+      // Post-read enforcement: server omits Content-Length, body is huge.
+      let calls = 0;
+      const hangOrig = globalThis.fetch;
+      globalThis.fetch = async () => {
+        calls += 1;
+        return new Response("x".repeat(bodyCapFixture.oversized.undeclaredBodyChars), {
+          status: 200,
+          headers: { "content-type": "text/plain" },
+        });
+      };
+      try {
+        const fetcher = new HttpFetcher(1000, 3, cap);
+        let rejected = false;
+        try {
+          await fetcher.fetch("https://example.com/lying");
+        } catch (e) {
+          rejected = bodyCapFixture.oversized.permanentMsg.test(e instanceof Error ? e.message : String(e));
+        }
+        if (!rejected) throw new Error("oversized body without content-length must be rejected after read");
+        if (calls !== 1) throw new Error(`oversized-body rejection must not be retried (calls=${calls})`);
+      } finally {
+        globalThis.fetch = hangOrig;
+      }
+    },
+  },
+  {
     name: "entity-decoding: extractText decodes HTML entities so quotes stay grounded",
     run() {
       const text = extractText(
@@ -212,6 +254,24 @@ const EDGE_CASES = [
       if (text !== "café & co — guide ä ½") {
         throw new Error(`named text entities not decoded: "${text}"`);
       }
+    }
+  },
+  {
+    name: "word-boundary: selectQuote ignores query terms embedded in longer words",
+    run() {
+      const text = wordBoundaryContent.normalizedText;
+      const quote = selectQuote(text, wordBoundaryContent.query);
+      if (!text.includes(quote)) {
+        throw new Error(`quote is not a verbatim substring of the page: "${quote}"`);
+      }
+      if (!quote.includes(wordBoundaryContent.term)) {
+        throw new Error(`quote does not contain term "${wordBoundaryContent.term}": "${quote}"`);
+      }
+      for (const forbidden of wordBoundaryContent.forbidden) {
+        if (quote.includes(forbidden)) {
+          throw new Error(`quote contains substring-mismatched sentence "${forbidden}": "${quote}"`);
+        }
+      }
     },
   },
   {
@@ -241,6 +301,59 @@ const EDGE_CASES = [
       const d = await fetcher.fetch(duplicateResults.url);
       if (!d.text.length) {
         throw new Error("fetched deduped document unexpectedly empty");
+      }
+    },
+  },
+  {
+    name: "url-variants: tracking/fragment/trailing-slash variants collapse to one citation",
+    async run() {
+      // Leaf function: variants of one page collapse; distinct pages survive.
+      const urls = urlVariantResults.searchResults.map((r) => r.url);
+      const deduped = dedupeByUrl(urls.map((url) => ({ url })));
+      if (deduped.length !== 1) {
+        throw new Error(`expected 1 deduped URL, got ${deduped.length}: ${deduped.map((d) => d.url).join(",")}`);
+      }
+      if (deduped[0].url !== urlVariantResults.expectedUrl) {
+        throw new Error(`expected canonical ${urlVariantResults.expectedUrl}, got ${deduped[0].url}`);
+      }
+      // End-to-end: dedupe happens BEFORE fetch, so the same page is never
+      // fetched twice and cites exactly the first-returned URL.
+      const fetches = [];
+      const fetcher = {
+        async fetch(url) {
+          fetches.push(url);
+          if (url === "https://example.com/guide") {
+            return {
+              url,
+              title: "Example Guide",
+              text: "the official example guide explains how to configure grounded search and cite primary sources with verifiable evidence.",
+              fetchedAt: new Date().toISOString(),
+            };
+          }
+          throw new Error(`unexpected fetch of ${url}`);
+        },
+      };
+      const variant = {
+        id: "variants",
+        async search() {
+          return urlVariantResults.searchResults;
+        },
+      };
+      const out = await runSearchAndCite(
+        { provider: variant, fetcher, maxSources: 5, minTrust: 0.5 },
+        { query: "guide" },
+      );
+      if (!out.grounded) {
+        throw new Error(`expected grounded output, got grounded=${out.grounded}`);
+      }
+      if (out.citations.length !== urlVariantResults.expectedCitationCount) {
+        throw new Error(`expected ${urlVariantResults.expectedCitationCount} citation, got ${out.citations.length}`);
+      }
+      if (out.citations[0].url !== urlVariantResults.expectedUrl) {
+        throw new Error(`expected citation url ${urlVariantResults.expectedUrl}, got ${out.citations[0].url}`);
+      }
+      if (fetches.length !== 1 || fetches[0] !== urlVariantResults.expectedUrl) {
+        throw new Error(`expected exactly 1 fetch of ${urlVariantResults.expectedUrl}, got ${fetches.join(",")}`);
       }
     },
   },

@@ -225,7 +225,7 @@ function scoreSentence(sentence: string, terms: string[], offset: number): numbe
   let score = 0;
   const lower = sentence.toLowerCase();
   for (const t of terms) {
-    if (lower.includes(t)) score += 4;
+    if (containsTerm(lower, t)) score += 4;
   }
   if (sentence.length >= 80 && sentence.length <= 400) score += 2;
   if (/[.!?]$/.test(sentence)) score += 1;
@@ -250,6 +250,26 @@ export function significantTerms(query: string): string[] {
     .toLowerCase()
     .split(/[^a-z0-9]+/)
     .filter((t) => t.length >= 3 && !STOPWORDS.has(t));
+}
+
+/**
+ * Word-boundary-aware term matching.
+ *
+ * Query terms are alphanumeric; a term must be delimited by non-alphanumeric
+ * characters (or the string edges) to count. Without this, a short term like
+ * "art" spuriously matches inside unrelated words ("article", "starting"),
+ * skewing quote-relevance scoring and windowing the quote around the wrong
+ * text. Hyphens and periods are boundaries, so "node" still matches inside
+ * "node-runtime" and "node.js".
+ */
+function containsTerm(text: string, term: string): boolean {
+  return new RegExp(`(?<![a-z0-9])${term}(?![a-z0-9])`).test(text);
+}
+
+/** Index of the first word-boundary occurrence of `term` in `text`, or -1. */
+function findTermIndex(text: string, term: string): number {
+  const m = new RegExp(`(?<![a-z0-9])${term}(?![a-z0-9])`).exec(text);
+  return m ? m.index : -1;
 }
 
 /**
@@ -295,7 +315,7 @@ export function selectQuote(text: string, query: string, maxLen = 220): string {
     const lower = best.toLowerCase();
     let idx = -1;
     for (const t of terms) {
-      const i = lower.indexOf(t);
+      const i = findTermIndex(lower, t);
       if (i !== -1 && (idx === -1 || i < idx)) idx = i;
     }
     if (idx !== -1) {
