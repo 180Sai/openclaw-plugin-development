@@ -244,11 +244,15 @@ const STOPWORDS = new Set([
 /**
  * Extract lowercased, non-stopword terms from a query. Terms shorter than 3
  * chars are dropped so single letters cannot match inside unrelated words.
+ *
+ * Splitting is Unicode-aware (`\p{L}\p{N}`) so accented query words survive
+ * intact: an ASCII-only splitter would turn "café" into the truncated term
+ * "caf", which then matches inside unrelated words like "cafeteria".
  */
 export function significantTerms(query: string): string[] {
   return query
     .toLowerCase()
-    .split(/[^a-z0-9]+/)
+    .split(/[^\p{L}\p{N}]+/u)
     .filter((t) => t.length >= 3 && !STOPWORDS.has(t));
 }
 
@@ -261,14 +265,21 @@ export function significantTerms(query: string): string[] {
  * skewing quote-relevance scoring and windowing the quote around the wrong
  * text. Hyphens and periods are boundaries, so "node" still matches inside
  * "node-runtime" and "node.js".
+ *
+ * Boundaries are Unicode-aware (`\p{L}\p{N}`): an ASCII-only boundary would
+ * treat the accented letter in "artículo" as a non-word char, letting "art"
+ * spuriously match inside it. Terms are matched verbatim (already
+ * lowercased by `significantTerms`), so the accented characters themselves
+ * are preserved. The backslashes are doubled because this is a template
+ * literal: `\p` would collapse to a literal "p" before the regex compiles.
  */
 function containsTerm(text: string, term: string): boolean {
-  return new RegExp(`(?<![a-z0-9])${term}(?![a-z0-9])`).test(text);
+  return new RegExp(`(?<![\\p{L}\\p{N}])${term}(?![\\p{L}\\p{N}])`, "u").test(text);
 }
 
 /** Index of the first word-boundary occurrence of `term` in `text`, or -1. */
 function findTermIndex(text: string, term: string): number {
-  const m = new RegExp(`(?<![a-z0-9])${term}(?![a-z0-9])`).exec(text);
+  const m = new RegExp(`(?<![\\p{L}\\p{N}])${term}(?![\\p{L}\\p{N}])`, "u").exec(text);
   return m ? m.index : -1;
 }
 

@@ -257,6 +257,15 @@ describe("selectQuote", () => {
     expect(significantTerms("the of and")).toHaveLength(0);
   });
 
+  it("keeps accented terms intact when extracting from a query", () => {
+    // An ASCII-only splitter would truncate "café" to "caf" (the é is not
+    // [a-z0-9]); the term must survive whole so it cannot match inside
+    // unrelated words like "cafeteria".
+    const terms = significantTerms("best café in paris");
+    expect(terms).toContain("café");
+    expect(terms).not.toContain("caf");
+  });
+
   it("prefers an informative mid-document sentence over page-top boilerplate", () => {
     const text =
       "skip to content main menu navigation. " +
@@ -319,6 +328,18 @@ describe("selectQuote", () => {
     // The first sentence wins the tie and its "node" sits on a hyphen
     // boundary — a word-boundary regex must not require whitespace.
     expect(quote).toContain("node-runtime");
+  });
+
+  it("does not count a query term that only occurs inside an accented word", () => {
+    // The old ASCII-only boundary regex ([a-z0-9]) treated "í" as a non-word
+    // char, so "art" spuriously matched inside "artículo". Unicode-aware
+    // boundaries must prefer the sentence where "art" is its own word.
+    const text =
+      "el artículo sobre cultura moderna. art matters most of all in this overview of the movement.";
+    const quote = selectQuote(text, "art");
+    expect(text.includes(quote)).toBe(true);
+    expect(quote).toContain("art");
+    expect(quote).not.toContain("artículo");
   });
 });
 
