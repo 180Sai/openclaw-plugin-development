@@ -386,7 +386,7 @@ const EDGE_CASES = [
     },
   },
   {
-    name: "url-scheme-variants: http/https and www variants collapse to one citation",
+    name: "url-scheme-variants: http/https, www and default-port variants collapse to one citation",
     async run() {
       const deduped = dedupeByUrl(urlSchemeVariantResults.searchResults.map((r) => ({ url: r.url })));
       if (deduped.length !== 1) {
