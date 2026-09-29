@@ -74,12 +74,14 @@ const TRACKING_PARAMS = [
  * Canonical key for dedupe comparisons: scheme-normalized origin + path (no
  * trailing slash) + query minus tracking params, fragment stripped.
  *
- * Scheme (`http` vs `https`) and a leading `www.` host prefix do not change
- * which page a URL addresses, and real providers frequently return mixed
- * variants (http/https, with/without www) for one page. Normalizing them to
- * a single key lets those collapse to one citation instead of citing the
- * same page twice. The FIRST occurrence's original URL is still kept (see
- * `dedupeByUrl`), so provenance is never broken by the synthesized scheme.
+ * Scheme (`http` vs `https`), a leading `www.` host prefix, and an explicit
+ * default port (e.g. `:443` on https, `:80` on http) do not change which
+ * page a URL addresses, and real providers frequently return mixed variants
+ * (http/https, with/without www, with/without default port) for one page.
+ * Normalizing them to a single key lets those collapse to one citation
+ * instead of citing the same page twice. The FIRST occurrence's original URL
+ * is still kept (see `dedupeByUrl`), so provenance is never broken by the
+ * synthesized scheme.
  *
  * Non-URL strings fall back to an exact match so malformed inputs never
  * collide.
@@ -106,9 +108,15 @@ export function canonicalUrlKey(url: string): string {
   }
 }
 
-/** Include the port only when explicitly present, for stable keys. */
+/**
+ * Include the port only when it is non-default, for stable keys. After
+ * scheme normalization the canonical scheme is https, so an explicit `:443`
+ * (and the `:80` a mixed http variant may still carry, since the http→https
+ * rewrite keeps the port value) is redundant and should not split a page
+ * into two dedupe keys.
+ */
 function portSuffix(port: string): string {
-  return port ? `:${port}` : "";
+  return port && port !== "443" && port !== "80" ? `:${port}` : "";
 }
 
 /**

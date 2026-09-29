@@ -43,6 +43,13 @@ export const urlSchemeVariantResults = {
       score: 0.8,
       retrievedAt: new Date().toISOString(),
     },
+    {
+      url: "https://www.example.com:443/release-notes",
+      title: "Release Notes",
+      snippet: "upstream release notes with versioned feature summaries",
+      score: 0.75,
+      retrievedAt: new Date().toISOString(),
+    },
   ],
   /** After dedupe, exactly the canonical URL must be fetched and cited. */
   expectedUrl: "https://example.com/release-notes",

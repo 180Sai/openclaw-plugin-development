@@ -452,6 +452,23 @@ describe("scoring", () => {
     );
   });
 
+  it("canonicalUrlKey collapses explicit default ports", () => {
+    expect(canonicalUrlKey("https://example.com:443/docs/guide")).toBe(
+      canonicalUrlKey("https://example.com/docs/guide"),
+    );
+    // An http variant that carried an explicit :80 collapses with its
+    // https form once the scheme is normalized (port value kept on rewrite).
+    expect(canonicalUrlKey("http://example.com:80/docs/guide")).toBe(
+      canonicalUrlKey("https://example.com/docs/guide"),
+    );
+  });
+
+  it("canonicalUrlKey keeps non-default ports distinct", () => {
+    expect(canonicalUrlKey("https://example.com:8443/x")).not.toBe(
+      canonicalUrlKey("https://example.com/x"),
+    );
+  });
+
   it("selects only sources above the threshold", () => {
     const selected = selectSources([doc], { minTrust: 0.9 }, 5);
     expect(selected).toHaveLength(0);
