@@ -341,6 +341,36 @@ describe("selectQuote", () => {
     expect(quote).toContain("art");
     expect(quote).not.toContain("artículo");
   });
+
+  it("matches an accented document term with an unaccented query term", () => {
+    // Query spelled without an accent must still match document text that
+    // carries an accent ("cafe" ↔ "café", via diacritic folding for
+    // matching only — the quote stays verbatim from the document).
+    const text =
+      "the best café in paris serves espresso. pastries and strong coffee are the highlight on the menu there.";
+    const quote = selectQuote(text, "cafe");
+    expect(text.includes(quote)).toBe(true);
+    expect(quote).toContain("café");
+  });
+
+  it("matches an accented query term with an unaccented document term", () => {
+    // Reverse direction: a query carrying an accent matches ASCII-only text.
+    const text =
+      "the annual cafe crawl route starts here. a guided tasting walk through the best venues is planned for the evening.";
+    const quote = selectQuote(text, "café");
+    expect(text.includes(quote)).toBe(true);
+    expect(quote).toContain("cafe");
+  });
+
+  it("keeps the emitted quote verbatim from the original text after folding", () => {
+    // The fold is for relevance matching only; the returned quote must remain
+    // a verbatim substring of the original document text (accents intact).
+    const text =
+      "café culture is thriving here. the guide lists venues, menus and opening times in full detail.";
+    const quote = selectQuote(text, "cafe");
+    expect(text.includes(quote)).toBe(true);
+    expect(quote).toContain("café");
+  });
 });
 
 describe("strict grounding mode (requireGrounding)", () => {

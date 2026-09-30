@@ -26,6 +26,7 @@ import { urlVariantResults } from "../fixtures/url-variants.mjs";
 import { dedupeByUrl } from "../dist/scoring.js";
 import { wordBoundaryContent } from "../fixtures/word-boundary.mjs";
 import { unicodeTermContent } from "../fixtures/unicode-terms.mjs";
+import { diacriticTermContent } from "../fixtures/diacritic-terms.mjs";
 
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -298,6 +299,31 @@ const EDGE_CASES = [
       }
       if (terms.includes("caf")) {
         throw new Error(`ASCII-truncated term leaked into extraction: ${JSON.stringify(terms)}`);
+      }
+    },
+  },
+  {
+    name: "diacritic-terms: accent-folded matching surfaces the verbatim accented quote",
+    run() {
+      // A query written without an accent ("cafe") must match document text
+      // containing the accented form ("café") for *relevance & windowing*,
+      // but the emitted quote must keep the verbatim accent from the fetched
+      // text (provenance preserved). It must also never pick the decoy
+      // "cafeteria" (word-boundary still applies after folding).
+      const text = diacriticTermContent.normalizedText;
+      const quote = selectQuote(text, diacriticTermContent.query);
+      if (!text.includes(quote)) {
+        throw new Error(`quote is not a verbatim substring of the page: "${quote}"`);
+      }
+      if (!quote.includes(diacriticTermContent.term)) {
+        throw new Error(
+          `quote does not contain the verbatim accented term "${diacriticTermContent.term}": "${quote}"`,
+        );
+      }
+      for (const forbidden of diacriticTermContent.forbidden) {
+        if (quote.includes(forbidden)) {
+          throw new Error(`quote contains decoy "${forbidden}": "${quote}"`);
+        }
       }
     },
   },
