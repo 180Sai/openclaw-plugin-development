@@ -257,6 +257,23 @@ export function significantTerms(query: string): string[] {
 }
 
 /**
+ * Unicode accent folding for matching.
+ *
+ * Normalizes a string to NFD then strips combining marks, so "café" folds to
+ * "cafe". Used ONLY for relevance matching — never for the emitted quote,
+ * which is always sliced verbatim from the original document text so
+ * provenance (quote ∈ fetched text) is preserved.
+ */
+function foldDiacritics(s: string): string {
+  return s.normalize("NFD").replace(/\p{M}/gu, "");
+}
+
+/** Escape regex metacharacters in a term used inside a RegExp source. */
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
  * Word-boundary-aware term matching.
  *
  * Query terms are alphanumeric; a term must be delimited by non-alphanumeric
@@ -268,18 +285,26 @@ export function significantTerms(query: string): string[] {
  *
  * Boundaries are Unicode-aware (`\p{L}\p{N}`): an ASCII-only boundary would
  * treat the accented letter in "artículo" as a non-word char, letting "art"
- * spuriously match inside it. Terms are matched verbatim (already
- * lowercased by `significantTerms`), so the accented characters themselves
- * are preserved. The backslashes are doubled because this is a template
- * literal: `\p` would collapse to a literal "p" before the regex compiles.
+ * spuriously match inside it. Terms are also matched accent-insensitively
+ * (both the text and the term are diacritic-folded), so a query written
+ * without accents ("cafe") matches document text that spells it "café", and
+ * a query with accents matches an ASCII-only rendering. The backslashes are
+ * doubled because this is a template literal: `\p` would collapse to a
+ * literal "p" before the regex compiles.
  */
 function containsTerm(text: string, term: string): boolean {
-  return new RegExp(`(?<![\\p{L}\\p{N}])${term}(?![\\p{L}\\p{N}])`, "u").test(text);
+  return new RegExp(
+    `(?<![\\p{L}\\p{N}])${escapeRegExp(foldDiacritics(term))}(?![\\p{L}\\p{N}])`,
+    "u",
+  ).test(foldDiacritics(text));
 }
 
 /** Index of the first word-boundary occurrence of `term` in `text`, or -1. */
 function findTermIndex(text: string, term: string): number {
-  const m = new RegExp(`(?<![\\p{L}\\p{N}])${term}(?![\\p{L}\\p{N}])`, "u").exec(text);
+  const m = new RegExp(
+    `(?<![\\p{L}\\p{N}])${escapeRegExp(foldDiacritics(term))}(?![\\p{L}\\p{N}])`,
+    "u",
+  ).exec(foldDiacritics(text));
   return m ? m.index : -1;
 }
 
