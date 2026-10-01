@@ -24,6 +24,7 @@ import { entityFixture } from "../fixtures/entity-decoding.mjs";
 import { bodyCapFixture } from "../fixtures/body-cap.mjs";
 import { urlVariantResults } from "../fixtures/url-variants.mjs";
 import { urlSchemeVariantResults } from "../fixtures/url-scheme-variants.mjs";
+import { urlEmptyQueryResults } from "../fixtures/url-empty-query.mjs";
 import { dedupeByUrl } from "../dist/scoring.js";
 import { wordBoundaryContent } from "../fixtures/word-boundary.mjs";
 import { unicodeTermContent } from "../fixtures/unicode-terms.mjs";
@@ -431,6 +432,56 @@ const EDGE_CASES = [
       }
       if (fetches.length !== 1 || fetches[0] !== urlSchemeVariantResults.expectedUrl) {
         throw new Error(`expected exactly 1 fetch of ${urlSchemeVariantResults.expectedUrl}, got ${fetches.join(",")}`);
+      }
+    },
+  },
+  {
+    name: "url-empty-query: trailing '?' with no params collapses to same key",
+    async run() {
+      const urls = urlEmptyQueryResults.searchResults.map((r) => r.url);
+      const deduped = dedupeByUrl(urls.map((url) => ({ url })));
+      if (deduped.length !== 1) {
+        throw new Error(`expected 1 deduped URL, got ${deduped.length}: ${deduped.map((d) => d.url).join(",")}`);
+      }
+      if (deduped[0].url !== urlEmptyQueryResults.expectedUrl) {
+        throw new Error(`expected canonical ${urlEmptyQueryResults.expectedUrl}, got ${deduped[0].url}`);
+      }
+      const fetches = [];
+      const fetcher = {
+        async fetch(url) {
+          fetches.push(url);
+          if (url === "https://example.com/release-notes") {
+            return {
+              url,
+              title: "Release Notes",
+              text: "the release notes document versioned feature summaries for the current upstream release with grounded evidence and verifiable detail.",
+              fetchedAt: new Date().toISOString(),
+            };
+          }
+          throw new Error(`unexpected fetch of ${url}`);
+        },
+      };
+      const variant = {
+        id: "url-empty-query",
+        async search() {
+          return urlEmptyQueryResults.searchResults;
+        },
+      };
+      const out = await runSearchAndCite(
+        { provider: variant, fetcher, maxSources: 5, minTrust: 0.5 },
+        { query: "release notes" },
+      );
+      if (!out.grounded) {
+        throw new Error(`expected grounded output, got grounded=${out.grounded}`);
+      }
+      if (out.citations.length !== urlEmptyQueryResults.expectedCitationCount) {
+        throw new Error(`expected ${urlEmptyQueryResults.expectedCitationCount} citation, got ${out.citations.length}`);
+      }
+      if (out.citations[0].url !== urlEmptyQueryResults.expectedUrl) {
+        throw new Error(`expected citation url ${urlEmptyQueryResults.expectedUrl}, got ${out.citations[0].url}`);
+      }
+      if (fetches.length !== 1 || fetches[0] !== urlEmptyQueryResults.expectedUrl) {
+        throw new Error(`expected exactly 1 fetch of ${urlEmptyQueryResults.expectedUrl}, got ${fetches.join(",")}`);
       }
     },
   },
