@@ -469,6 +469,12 @@ describe("scoring", () => {
     );
   });
 
+  it("canonicalUrlKey strips trailing '?' when no query params remain", () => {
+    expect(canonicalUrlKey("https://example.com/page?")).toBe(
+      canonicalUrlKey("https://example.com/page"),
+    );
+  });
+
   it("selects only sources above the threshold", () => {
     const selected = selectSources([doc], { minTrust: 0.9 }, 5);
     expect(selected).toHaveLength(0);

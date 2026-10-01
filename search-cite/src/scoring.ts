@@ -102,7 +102,11 @@ export function canonicalUrlKey(url: string): string {
       u.pathname.length > 1 && u.pathname.endsWith("/")
         ? u.pathname.slice(0, -1)
         : u.pathname;
-    return `${u.protocol}//${host}${portSuffix(u.port)}${path}${u.search}`;
+    // Strip a bare trailing '?' when no query parameters remain after
+    // tracking-param removal, so "https://example.com/page?" and
+    // "https://example.com/page" collapse to the same key.
+    const search = u.search === "?" ? "" : u.search;
+    return `${u.protocol}//${host}${portSuffix(u.port)}${path}${search}`;
   } catch {
     return url;
   }
