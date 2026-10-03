@@ -102,10 +102,30 @@ export function canonicalUrlKey(url: string): string {
       u.pathname.length > 1 && u.pathname.endsWith("/")
         ? u.pathname.slice(0, -1)
         : u.pathname;
-    return `${u.protocol}//${host}${portSuffix(u.port)}${path}${u.search}`;
+    return `${u.protocol}//${host}${portSuffix(u.port)}${path}${sortedSearch(u.searchParams)}`;
   } catch {
     return url;
   }
+}
+
+/**
+ * Rebuild a canonical query string from search params, sorted by
+ * (name, value), so reordered variants of the same page ("?a=1&b=2" vs
+ * "?b=2&a=1") collapse to one key. Parameter-map semantics are
+ * order-independent, and providers/CMSs do reorder params for one URL.
+ * Returns "" when no params remain — a bare trailing '?' after tracking-
+ * param removal folds to no query at all, so ".../page?" and ".../page"
+ * dedupe together.
+ */
+function sortedSearch(params: URLSearchParams): string {
+  const entries = [...params.entries()].sort((x, y) => {
+    if (x[0] < y[0]) return -1;
+    if (x[0] > y[0]) return 1;
+    if (x[1] < y[1]) return -1;
+    if (x[1] > y[1]) return 1;
+    return 0;
+  });
+  return entries.length ? `?${entries.map(([k, v]) => `${k}=${v}`).join("&")}` : "";
 }
 
 /**
