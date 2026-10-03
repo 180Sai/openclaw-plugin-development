@@ -22,6 +22,7 @@ export default [
         setTimeout: "readonly",
         clearTimeout: "readonly",
         URL: "readonly",
+        URLSearchParams: "readonly",
         fetch: "readonly",
         AbortController: "readonly",
       },

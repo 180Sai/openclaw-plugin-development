@@ -24,6 +24,7 @@ import { entityFixture } from "../fixtures/entity-decoding.mjs";
 import { bodyCapFixture } from "../fixtures/body-cap.mjs";
 import { urlVariantResults } from "../fixtures/url-variants.mjs";
 import { urlSchemeVariantResults } from "../fixtures/url-scheme-variants.mjs";
+import { urlParamOrderResults } from "../fixtures/url-param-order.mjs";
 import { dedupeByUrl } from "../dist/scoring.js";
 import { wordBoundaryContent } from "../fixtures/word-boundary.mjs";
 import { unicodeTermContent } from "../fixtures/unicode-terms.mjs";
@@ -457,6 +458,55 @@ const EDGE_CASES = [
       }
       if (fetches.length !== 1 || fetches[0] !== urlSchemeVariantResults.expectedUrl) {
         throw new Error(`expected exactly 1 fetch of ${urlSchemeVariantResults.expectedUrl}, got ${fetches.join(",")}`);
+      }
+    },
+  },
+  {
+    name: "url-param-order: reordered query-parameter variants collapse to one citation",
+    async run() {
+      const deduped = dedupeByUrl(urlParamOrderResults.searchResults.map((r) => ({ url: r.url })));
+      if (deduped.length !== 1) {
+        throw new Error(`expected 1 deduped URL, got ${deduped.length}: ${deduped.map((d) => d.url).join(",")}`);
+      }
+      if (deduped[0].url !== urlParamOrderResults.expectedUrl) {
+        throw new Error(`expected canonical ${urlParamOrderResults.expectedUrl}, got ${deduped[0].url}`);
+      }
+      const fetches = [];
+      const fetcher = {
+        async fetch(url) {
+          fetches.push(url);
+          if (url === urlParamOrderResults.expectedUrl) {
+            return {
+              url,
+              title: "Runtime Notes",
+              text: "the runtime configuration notes document grounded setup detail with verifiable evidence for the current release.",
+              fetchedAt: new Date().toISOString(),
+            };
+          }
+          throw new Error(`unexpected fetch of ${url}`);
+        },
+      };
+      const variant = {
+        id: "url-param-order",
+        async search() {
+          return urlParamOrderResults.searchResults;
+        },
+      };
+      const out = await runSearchAndCite(
+        { provider: variant, fetcher, maxSources: 5, minTrust: 0.5 },
+        { query: "release notes" },
+      );
+      if (!out.grounded) {
+        throw new Error(`expected grounded output, got grounded=${out.grounded}`);
+      }
+      if (out.citations.length !== urlParamOrderResults.expectedCitationCount) {
+        throw new Error(`expected ${urlParamOrderResults.expectedCitationCount} citation, got ${out.citations.length}`);
+      }
+      if (out.citations[0].url !== urlParamOrderResults.expectedUrl) {
+        throw new Error(`expected citation url ${urlParamOrderResults.expectedUrl}, got ${out.citations[0].url}`);
+      }
+      if (fetches.length !== 1 || fetches[0] !== urlParamOrderResults.expectedUrl) {
+        throw new Error(`expected exactly 1 fetch of ${urlParamOrderResults.expectedUrl}, got ${fetches.join(",")}`);
       }
     },
   },

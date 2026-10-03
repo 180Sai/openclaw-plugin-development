@@ -499,6 +499,35 @@ describe("scoring", () => {
     );
   });
 
+  it("collapses reordered query-parameter variants of one page", () => {
+    const deduped = dedupeByUrl([
+      { url: "https://example.com/x?a=1&b=2" },
+      { url: "https://example.com/x?b=2&a=1" },
+    ]);
+    expect(deduped).toHaveLength(1);
+    // First occurrence's original URL is preserved for provenance.
+    expect(deduped[0].url).toBe("https://example.com/x?a=1&b=2");
+    // Multi-param orderings with three params also fold to one key.
+    expect(canonicalUrlKey("https://example.com/x?b=2&a=1&c=3")).toBe(
+      canonicalUrlKey("https://example.com/x?c=3&a=1&b=2"),
+    );
+    // Sorting is by name; values tie-break within the same name.
+    expect(canonicalUrlKey("https://example.com/x?q=2&q=1")).toBe(
+      canonicalUrlKey("https://example.com/x?q=1&q=2"),
+    );
+  });
+
+  it("keeps distinct pages that differ only by param value or name", () => {
+    // Same param name, different values -> distinct keys.
+    expect(canonicalUrlKey("https://example.com/x?a=1")).not.toBe(
+      canonicalUrlKey("https://example.com/x?a=2"),
+    );
+    // Different param names with the same value -> distinct keys.
+    expect(canonicalUrlKey("https://example.com/x?a=1")).not.toBe(
+      canonicalUrlKey("https://example.com/x?b=1"),
+    );
+  });
+
   it("selects only sources above the threshold", () => {
     const selected = selectSources([doc], { minTrust: 0.9 }, 5);
     expect(selected).toHaveLength(0);
