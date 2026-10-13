@@ -25,6 +25,7 @@ import { bodyCapFixture } from "../fixtures/body-cap.mjs";
 import { urlVariantResults } from "../fixtures/url-variants.mjs";
 import { urlSchemeVariantResults } from "../fixtures/url-scheme-variants.mjs";
 import { urlParamOrderResults } from "../fixtures/url-param-order.mjs";
+import { percentEncodingResults } from "../fixtures/percent-encoding.mjs";
 import { dedupeByUrl } from "../dist/scoring.js";
 import { wordBoundaryContent } from "../fixtures/word-boundary.mjs";
 import { unicodeTermContent } from "../fixtures/unicode-terms.mjs";
@@ -507,6 +508,63 @@ const EDGE_CASES = [
       }
       if (fetches.length !== 1 || fetches[0] !== urlParamOrderResults.expectedUrl) {
         throw new Error(`expected exactly 1 fetch of ${urlParamOrderResults.expectedUrl}, got ${fetches.join(",")}`);
+      }
+    },
+  },
+  {
+    name: "percent-encoding: hex-case and over-encoded unreserved variants collapse to one citation",
+    async run() {
+      const deduped = dedupeByUrl(percentEncodingResults.searchResults.map((r) => ({ url: r.url })));
+      if (deduped.length !== 1) {
+        throw new Error(`expected 1 deduped URL, got ${deduped.length}: ${deduped.map((d) => d.url).join(",")}`);
+      }
+      if (deduped[0].url !== percentEncodingResults.expectedUrl) {
+        throw new Error(`expected canonical ${percentEncodingResults.expectedUrl}, got ${deduped[0].url}`);
+      }
+      // Encoded reserved chars stay distinct from literals (a%2Fb vs a/b).
+      const reserved = dedupeByUrl([
+        { url: "https://example.com/a%2Fb" },
+        { url: "https://example.com/a/b" },
+      ]);
+      if (reserved.length !== 2) {
+        throw new Error(`expected encoded-reserved variant to stay distinct, got ${reserved.length}`);
+      }
+      const fetches = [];
+      const fetcher = {
+        async fetch(url) {
+          fetches.push(url);
+          if (url === percentEncodingResults.expectedUrl) {
+            return {
+              url,
+              title: "Café Guide",
+              text: "the café guide documents grounded setup detail with verifiable evidence for the current release notes.",
+              fetchedAt: new Date().toISOString(),
+            };
+          }
+          throw new Error(`unexpected fetch of ${url}`);
+        },
+      };
+      const variant = {
+        id: "percent-encoding",
+        async search() {
+          return percentEncodingResults.searchResults;
+        },
+      };
+      const out = await runSearchAndCite(
+        { provider: variant, fetcher, maxSources: 5, minTrust: 0.5 },
+        { query: "café guide" },
+      );
+      if (!out.grounded) {
+        throw new Error(`expected grounded output, got grounded=${out.grounded}`);
+      }
+      if (out.citations.length !== percentEncodingResults.expectedCitationCount) {
+        throw new Error(`expected ${percentEncodingResults.expectedCitationCount} citation, got ${out.citations.length}`);
+      }
+      if (out.citations[0].url !== percentEncodingResults.expectedUrl) {
+        throw new Error(`expected citation url ${percentEncodingResults.expectedUrl}, got ${out.citations[0].url}`);
+      }
+      if (fetches.length !== 1 || fetches[0] !== percentEncodingResults.expectedUrl) {
+        throw new Error(`expected exactly 1 fetch of ${percentEncodingResults.expectedUrl}, got ${fetches.join(",")}`);
       }
     },
   },

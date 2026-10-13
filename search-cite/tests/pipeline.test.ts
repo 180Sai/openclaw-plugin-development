@@ -499,6 +499,56 @@ describe("scoring", () => {
     );
   });
 
+  it("canonicalUrlKey normalizes percent-encoding hex case", () => {
+    expect(canonicalUrlKey("https://example.com/caf%C3%A9")).toBe(
+      canonicalUrlKey("https://example.com/caf%c3%a9"),
+    );
+  });
+
+  it("canonicalUrlKey folds over-encoded unreserved chars to literals", () => {
+    // %7E is the over-encoded form of the unreserved character '~'.
+    expect(canonicalUrlKey("https://example.com/%7Euser")).toBe(
+      canonicalUrlKey("https://example.com/~user"),
+    );
+    // %41 is an over-encoded 'A'.
+    expect(canonicalUrlKey("https://example.com/%41bcd")).toBe(
+      canonicalUrlKey("https://example.com/Abcd"),
+    );
+  });
+
+  it("canonicalUrlKey keeps encoded reserved chars distinct from literals", () => {
+    // %2F decodes to '/' (a reserved char) and must NOT collide with a
+    // literal path separator: a%2Fb and a/b address different resources.
+    expect(canonicalUrlKey("https://example.com/a%2Fb")).not.toBe(
+      canonicalUrlKey("https://example.com/a/b"),
+    );
+    expect(canonicalUrlKey("https://example.com/a%2Fb")).toBe(
+      canonicalUrlKey("https://example.com/a%2fb"),
+    );
+  });
+
+  it("dedupes percent-encoding variants of one page", () => {
+    const variants = [
+      { url: "https://example.com/docs/~user/caf%C3%A9-guide" },
+      { url: "https://example.com/docs/%7Euser/caf%c3%a9-guide" },
+      { url: "https://example.com/docs/%7euser/caf%C3%A9-guide?utm_source=x&utm_campaign=launch" },
+    ];
+    const deduped = dedupeByUrl(variants);
+    expect(deduped).toHaveLength(1);
+    // First occurrence's original URL is preserved for provenance.
+    expect(deduped[0].url).toBe("https://example.com/docs/~user/caf%C3%A9-guide");
+  });
+
+  it("keeps distinct pages that differ only by encoded-reserved path segments", () => {
+    const items = [
+      { url: "https://example.com/a%2Fb" },
+      { url: "https://example.com/a/b" },
+      { url: "https://example.com/a%2fb" },
+    ];
+    // a%2Fb and a%2fb are the same (hex case); a/b is a different resource.
+    expect(dedupeByUrl(items)).toHaveLength(2);
+  });
+
   it("collapses reordered query-parameter variants of one page", () => {
     const deduped = dedupeByUrl([
       { url: "https://example.com/x?a=1&b=2" },
