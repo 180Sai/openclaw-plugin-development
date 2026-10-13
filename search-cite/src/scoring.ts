@@ -102,10 +102,33 @@ export function canonicalUrlKey(url: string): string {
       u.pathname.length > 1 && u.pathname.endsWith("/")
         ? u.pathname.slice(0, -1)
         : u.pathname;
-    return `${u.protocol}//${host}${portSuffix(u.port)}${path}${sortedSearch(u.searchParams)}`;
+    return `${u.protocol}//${host}${portSuffix(u.port)}${normalizePercentEncoding(path)}${sortedSearch(u.searchParams)}`;
   } catch {
     return url;
   }
+}
+
+/**
+ * Percent-encoding normalization for the canonical path.
+ *
+ * URL parsers keep the encoded form of a path exactly as given, so
+ * "caf%C3%A9", "caf%c3%a9" and "café" (auto-encoded to uppercase
+ * "caf%C3%A9") would otherwise produce distinct dedupe keys for the same
+ * page. Providers escape inconsistently — varying hex-digit case and
+ * over-encoding unreserved characters — so:
+ *  - hex digits are uppercased: %c3%a9 == %C3%A9
+ *  - percent-encoded RFC 3986 *unreserved* characters are decoded to their
+ *    literal form: %7Euser == ~user
+ * Encoded reserved characters (%2F, %3F, %23, ...) are left untouched, so
+ * "a%2Fb" (a literal slash in one segment) never collides with "a/b".
+ */
+function normalizePercentEncoding(path: string): string {
+  return path.replace(/%[0-9a-fA-F]{2}/g, (m) => {
+    const code = parseInt(m.slice(1), 16);
+    const ch = String.fromCharCode(code);
+    if (/[A-Za-z0-9\-._~]/.test(ch)) return ch;
+    return `%${code.toString(16).toUpperCase().padStart(2, "0")}`;
+  });
 }
 
 /**
