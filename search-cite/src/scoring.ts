@@ -96,7 +96,12 @@ export function canonicalUrlKey(url: string): string {
     // Drop a leading `www.` host label: example.com and www.example.com are
     // the same site for dedupe purposes. Lowercase the host too, since DNS is
     // case-insensitive but URL parsing preserves whatever case was returned.
-    const host = u.hostname.replace(/^www\./i, "").toLowerCase();
+    // Strip a DNS trailing dot (FQDN root marker): example.com. and
+    // example.com resolve to the same host (RFC 4343) and share one key.
+    const host = u.hostname
+      .replace(/^www\./i, "")
+      .replace(/\.$/, "")
+      .toLowerCase();
     u.hostname = host;
     const path =
       u.pathname.length > 1 && u.pathname.endsWith("/")
@@ -107,6 +112,21 @@ export function canonicalUrlKey(url: string): string {
     return url;
   }
 }
+
+/**
+ * DNS trailing-dot normalization.
+ *
+ * Hostnames can be written with a trailing dot ("example.com."), the root-
+ * marker for a fully qualified domain name; the trailing dot belongs to the
+ * root zone and the two spellings resolve to the same host. Providers and
+ * CMSs occasionally return the FQDN form, which would otherwise split one
+ * page into two dedupe keys. Per RFC 4343, trailing dots in hostnames are
+ * insignificant.
+ *
+ * Note: the canonical key is built for dedupe comparisons only. The host is
+ * not rewritten in the original URL, so provenance keeps the provider's
+ * exact spelling.
+ */
 
 /**
  * Percent-encoding normalization for the canonical path.

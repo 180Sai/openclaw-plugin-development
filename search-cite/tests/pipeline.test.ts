@@ -482,6 +482,30 @@ describe("scoring", () => {
     );
   });
 
+  it("canonicalUrlKey strips a trailing DNS dot from the hostname", () => {
+    // RFC 4343: a trailing dot is the root-marker of a fully qualified
+    // domain name and is insignificant — example.com. resolves to the same
+    // host as example.com.
+    expect(canonicalUrlKey("https://example.com./docs/guide")).toBe(
+      canonicalUrlKey("https://example.com/docs/guide"),
+    );
+    expect(canonicalUrlKey("https://www.example.com./x")).toBe(
+      canonicalUrlKey("https://example.com/x"),
+    );
+  });
+
+  it("dedupes trailing-dot FQDN variants of one page", () => {
+    const variants = [
+      { url: "https://example.com/docs/guide" },
+      { url: "https://example.com./docs/guide" },
+      { url: "https://www.example.com./docs/guide?utm_source=x" },
+    ];
+    const deduped = dedupeByUrl(variants);
+    expect(deduped).toHaveLength(1);
+    // First occurrence's original URL is preserved for provenance.
+    expect(deduped[0].url).toBe("https://example.com/docs/guide");
+  });
+
   it("canonicalUrlKey collapses explicit default ports", () => {
     expect(canonicalUrlKey("https://example.com:443/docs/guide")).toBe(
       canonicalUrlKey("https://example.com/docs/guide"),

@@ -26,6 +26,7 @@ import { urlVariantResults } from "../fixtures/url-variants.mjs";
 import { urlSchemeVariantResults } from "../fixtures/url-scheme-variants.mjs";
 import { urlParamOrderResults } from "../fixtures/url-param-order.mjs";
 import { percentEncodingResults } from "../fixtures/percent-encoding.mjs";
+import { trailingDotResults } from "../fixtures/trailing-dot.mjs";
 import { dedupeByUrl } from "../dist/scoring.js";
 import { wordBoundaryContent } from "../fixtures/word-boundary.mjs";
 import { unicodeTermContent } from "../fixtures/unicode-terms.mjs";
@@ -459,6 +460,64 @@ const EDGE_CASES = [
       }
       if (fetches.length !== 1 || fetches[0] !== urlSchemeVariantResults.expectedUrl) {
         throw new Error(`expected exactly 1 fetch of ${urlSchemeVariantResults.expectedUrl}, got ${fetches.join(",")}`);
+      }
+    },
+  },
+  {
+    name: "trailing-dot: FQDN hostname variants collapse to one citation",
+    async run() {
+      const deduped = dedupeByUrl(trailingDotResults.searchResults.map((r) => ({ url: r.url })));
+      if (deduped.length !== 1) {
+        throw new Error(`expected 1 deduped URL, got ${deduped.length}: ${deduped.map((d) => d.url).join(",")}`);
+      }
+      if (deduped[0].url !== trailingDotResults.expectedUrl) {
+        throw new Error(`expected canonical ${trailingDotResults.expectedUrl}, got ${deduped[0].url}`);
+      }
+      // Subdomains stay distinct: a trailing dot on one must not collapse
+      // a different subdomain into the bare host.
+      const subdomains = dedupeByUrl([
+        { url: "https://docs.example.com./guide" },
+        { url: "https://blog.example.com./guide" },
+      ]);
+      if (subdomains.length !== 2) {
+        throw new Error(`expected distinct subdomains, got ${subdomains.length}`);
+      }
+      const fetches = [];
+      const fetcher = {
+        async fetch(url) {
+          fetches.push(url);
+          if (url === trailingDotResults.expectedUrl) {
+            return {
+              url,
+              title: "Setup Guide",
+              text: "the setup guide documents grounded configuration detail with verifiable evidence for the current release notes.",
+              fetchedAt: new Date().toISOString(),
+            };
+          }
+          throw new Error(`unexpected fetch of ${url}`);
+        },
+      };
+      const variant = {
+        id: "trailing-dot",
+        async search() {
+          return trailingDotResults.searchResults;
+        },
+      };
+      const out = await runSearchAndCite(
+        { provider: variant, fetcher, maxSources: 5, minTrust: 0.5 },
+        { query: "setup guide" },
+      );
+      if (!out.grounded) {
+        throw new Error(`expected grounded output, got grounded=${out.grounded}`);
+      }
+      if (out.citations.length !== trailingDotResults.expectedCitationCount) {
+        throw new Error(`expected ${trailingDotResults.expectedCitationCount} citation, got ${out.citations.length}`);
+      }
+      if (out.citations[0].url !== trailingDotResults.expectedUrl) {
+        throw new Error(`expected citation url ${trailingDotResults.expectedUrl}, got ${out.citations[0].url}`);
+      }
+      if (fetches.length !== 1 || fetches[0] !== trailingDotResults.expectedUrl) {
+        throw new Error(`expected exactly 1 fetch of ${trailingDotResults.expectedUrl}, got ${fetches.join(",")}`);
       }
     },
   },
