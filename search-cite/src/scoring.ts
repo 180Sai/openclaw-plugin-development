@@ -79,7 +79,9 @@ const TRACKING_PARAMS = [
  * page a URL addresses, and real providers frequently return mixed variants
  * (http/https, with/without www, with/without default port) for one page.
  * Normalizing them to a single key lets those collapse to one citation
- * instead of citing the same page twice. The FIRST occurrence's original URL
+ * instead of citing the same page twice. A DNS trailing dot (FQDN root
+ * marker, RFC 4343 — "example.com." vs "example.com") is likewise
+ * insignificant and folds to one key. The FIRST occurrence's original URL
  * is still kept (see `dedupeByUrl`), so provenance is never broken by the
  * synthesized scheme.
  *
@@ -96,7 +98,12 @@ export function canonicalUrlKey(url: string): string {
     // Drop a leading `www.` host label: example.com and www.example.com are
     // the same site for dedupe purposes. Lowercase the host too, since DNS is
     // case-insensitive but URL parsing preserves whatever case was returned.
-    const host = u.hostname.replace(/^www\./i, "").toLowerCase();
+    // Strip a DNS trailing dot (FQDN root marker): example.com. and
+    // example.com resolve to the same host (RFC 4343) and share one key.
+    const host = u.hostname
+      .replace(/^www\./i, "")
+      .replace(/\.$/, "")
+      .toLowerCase();
     u.hostname = host;
     const path =
       u.pathname.length > 1 && u.pathname.endsWith("/")
