@@ -79,7 +79,9 @@ const TRACKING_PARAMS = [
  * page a URL addresses, and real providers frequently return mixed variants
  * (http/https, with/without www, with/without default port) for one page.
  * Normalizing them to a single key lets those collapse to one citation
- * instead of citing the same page twice. The FIRST occurrence's original URL
+ * instead of citing the same page twice. A DNS trailing dot (FQDN root
+ * marker, RFC 4343 — "example.com." vs "example.com") is likewise
+ * insignificant and folds to one key. The FIRST occurrence's original URL
  * is still kept (see `dedupeByUrl`), so provenance is never broken by the
  * synthesized scheme.
  *
@@ -112,21 +114,6 @@ export function canonicalUrlKey(url: string): string {
     return url;
   }
 }
-
-/**
- * DNS trailing-dot normalization.
- *
- * Hostnames can be written with a trailing dot ("example.com."), the root-
- * marker for a fully qualified domain name; the trailing dot belongs to the
- * root zone and the two spellings resolve to the same host. Providers and
- * CMSs occasionally return the FQDN form, which would otherwise split one
- * page into two dedupe keys. Per RFC 4343, trailing dots in hostnames are
- * insignificant.
- *
- * Note: the canonical key is built for dedupe comparisons only. The host is
- * not rewritten in the original URL, so provenance keeps the provider's
- * exact spelling.
- */
 
 /**
  * Percent-encoding normalization for the canonical path.
